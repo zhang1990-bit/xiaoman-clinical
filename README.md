@@ -47,7 +47,7 @@
 
 ## 安装
 
-到 [Releases](https://github.com/zhang1990-bit/xiaoman-clinical/releases) 下载 `临床秘书-v1.0.apk`，传到手机安装（首次需允许"安装未知来源应用"）。
+到 [Releases](https://github.com/zhang1990-bit/xiaoman-clinical/releases/latest) 下载 **`xiaoman-clinical-1.0.0.apk`**（62 MB），传到手机安装（首次需允许"安装未知来源应用"）。
 
 - Android 11（API 30）及以上
 - 桌面图标叫「小满」，**不要开无障碍服务**
