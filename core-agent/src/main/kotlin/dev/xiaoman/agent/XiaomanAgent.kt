@@ -288,6 +288,7 @@ class XiaomanAgent(
             AgentTools.TASK_LIST,
             AgentTools.TASK_DONE,
             AgentTools.TASK_UPDATE,
+            AgentTools.TASK_ROSTER,
         )
 
         fun howtoPermalink(key: String) = "howto/$key"

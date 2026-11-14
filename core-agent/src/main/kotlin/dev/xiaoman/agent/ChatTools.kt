@@ -2,6 +2,7 @@ package dev.xiaoman.agent
 
 import dev.xiaoman.api.AgentEvent
 import dev.xiaoman.api.AnchorKind
+import dev.xiaoman.api.BedSlot
 import dev.xiaoman.api.CareTask
 import dev.xiaoman.api.MemoryStore
 import dev.xiaoman.api.Note
@@ -11,6 +12,7 @@ import dev.xiaoman.api.ReminderScheduler
 import dev.xiaoman.api.Skill
 import dev.xiaoman.api.SkillRepository
 import dev.xiaoman.api.TaskAnchor
+import dev.xiaoman.api.TaskRoster
 import dev.xiaoman.api.TaskRule
 import dev.xiaoman.api.TaskRuleKind
 import dev.xiaoman.api.TaskState
@@ -24,9 +26,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import java.time.Instant
@@ -62,6 +66,7 @@ internal class ChatTools(
             AgentTools.TASK_LIST -> taskList(args)
             AgentTools.TASK_DONE -> taskDone(args)
             AgentTools.TASK_UPDATE -> taskUpdate(args)
+            AgentTools.TASK_ROSTER -> taskRoster(args)
             AgentTools.PHONE_TASK -> if (phoneTasks) phone(args) else error("这里不能操作手机，请用其他工具或告诉用户自己操作")
             else -> external(call, taskId, emit)
         }
@@ -319,6 +324,58 @@ internal class ChatTools(
         }
         store.updateAll(updated)
         return result("已更新", updated, today)
+    }
+
+    /**
+     * Reconciles the tasks with the bed/name table the model read off a photo of the HIS screen.
+     *
+     * Only a bed move of the same person is applied ([apply]); a bed that now holds another name and
+     * a name that is on the roster twice are reported so the user decides, never guessed.
+     */
+    private suspend fun taskRoster(args: JsonObject): String {
+        val store = tasks ?: return error("待办功能没有启用")
+        val roster = readSlots(args["beds"])
+        if (roster.isEmpty()) throw ToolArgumentException("beds 为空，没有读到床号和姓名")
+        val apply = (args["apply"] as? JsonPrimitive)?.let { it.booleanOrNull ?: (it.content == "是") } == true
+        val today = today()
+        val all = store.all()
+        val report = TaskRoster.compare(all, roster)
+        if (report.checked == 0) return error("现在没有未办的待办，不用核对")
+        if (apply && report.moves.isNotEmpty()) {
+            val byId = all.associateBy { it.id }
+            store.updateAll(report.moves.flatMap { move -> move.ids.mapNotNull { byId[it]?.copy(bed = move.toBed) } })
+        }
+        return buildJsonObject {
+            put("ok", true)
+            put("bedsRead", roster.size)
+            put("checked", report.checked)
+            put("applied", apply)
+            put("moves", report.moves.size)
+            put("conflicts", report.conflicts.size)
+            put("missing", report.missing.size)
+            putJsonArray("detail") {
+                report.moves.forEach { move ->
+                    add("${move.fromBed}床 ${move.name} → ${move.toBed}床｜${move.items.joinToString("、")}｜" + if (apply) "已改床" else "待改床")
+                }
+                report.conflicts.forEach { c ->
+                    add("${c.bed}床｜待办记的是 ${c.taskName}｜HIS 是 ${c.hisName}｜${c.reason}｜${c.item}｜未改，需要问用户")
+                }
+                report.missing.forEach { m ->
+                    add("${m.bed}床 ${m.name}｜${m.items.joinToString("、")}｜HIS 表里没有这个人｜未改，问是否已出院或转走")
+                }
+            }
+            if (report.clear) put("summary", "床号和姓名全部对得上，没有要改的")
+        }.toString()
+    }
+
+    private fun readSlots(raw: kotlinx.serialization.json.JsonElement?): List<BedSlot> {
+        val array = raw as? JsonArray ?: return emptyList()
+        return array.mapNotNull { element ->
+            val o = runCatching { element.jsonObject }.getOrNull() ?: return@mapNotNull null
+            val bed = JsonText.string(o, "bed")?.trim().orEmpty()
+            val name = JsonText.string(o, "name")?.trim().orEmpty()
+            if (bed.isEmpty() || name.isEmpty() || bed == "null" || name == "null") null else BedSlot(bed, name)
+        }
     }
 
     private fun result(label: String, tasks: List<CareTask>, today: LocalDate): String = buildJsonObject {

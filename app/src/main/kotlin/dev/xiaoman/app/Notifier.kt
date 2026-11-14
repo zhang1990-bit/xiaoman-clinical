@@ -107,17 +107,35 @@ class Notifier(private val context: Context) {
         manager.notify(id, notification)
     }
 
-    /** One aggregated notification per checkpoint, so several tasks never stack up as separate cards. */
-    fun showDigest(tasks: List<CareTask>, today: LocalDate) {
-        if (!allowed() || tasks.isEmpty()) return
-        val lines = tasks.joinToString("\n") { t ->
-            "${t.bed}床 ${t.name}｜${t.item}（第${t.dayNumber(today)}天）"
+    /**
+     * One aggregated notification per checkpoint, so several tasks never stack up as separate cards.
+     *
+     * [test] posts even when nothing is due, so the notification path can be checked by hand instead
+     * of waiting for the next checkpoint. Returns false when notifications are blocked.
+     */
+    fun showDigest(tasks: List<CareTask>, today: LocalDate, test: Boolean = false): Boolean {
+        if (!allowed()) return false
+        if (tasks.isEmpty() && !test) return false
+        val empty = context.getString(R.string.digest_test_empty)
+        val lines = if (tasks.isEmpty()) {
+            empty
+        } else {
+            tasks.joinToString("\n") { t -> "${t.bed}床 ${t.name}｜${t.item}（第${t.dayNumber(today)}天）" }
         }
-        val preview = tasks.take(3).joinToString("；") { "${it.bed}床${it.item}" } +
-            if (tasks.size > 3) " 等 ${tasks.size} 条" else ""
+        val preview = if (tasks.isEmpty()) {
+            empty
+        } else {
+            tasks.take(3).joinToString("；") { "${it.bed}床${it.item}" } +
+                if (tasks.size > 3) " 等 ${tasks.size} 条" else ""
+        }
+        val title = if (test) {
+            context.getString(R.string.digest_title_test, tasks.size)
+        } else {
+            context.getString(R.string.digest_title, tasks.size)
+        }
         val notification = NotificationCompat.Builder(context, CHANNEL_REMINDERS)
             .setSmallIcon(R.drawable.ic_stat_xiaoman)
-            .setContentTitle(context.getString(R.string.digest_title, tasks.size))
+            .setContentTitle(title)
             .setContentText(preview)
             .setStyle(NotificationCompat.BigTextStyle().bigText(lines))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -126,6 +144,7 @@ class Notifier(private val context: Context) {
             .setContentIntent(openApp())
             .build()
         manager.notify(ID_DIGEST, notification)
+        return true
     }
 
     private fun allowed(): Boolean =

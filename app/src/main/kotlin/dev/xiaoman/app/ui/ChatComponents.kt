@@ -3,6 +3,7 @@ package dev.xiaoman.app.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,6 +15,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -23,13 +25,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.xiaoman.app.session.ChatItem
 
+/** [onTitleLongPress] pushes today's digest by hand, so the notification path can be tried at once. */
 @Composable
-internal fun ChatHeader(ready: Boolean, busy: Boolean, attention: Boolean) {
+internal fun ChatHeader(ready: Boolean, busy: Boolean, attention: Boolean, onTitleLongPress: () -> Unit = {}) {
+    val longPress = rememberUpdatedState(onTitleLongPress)
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(38.dp)) {
             Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(21.dp)) }
         }
-        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+        Column(
+            Modifier.weight(1f).padding(start = 10.dp)
+                .pointerInput(Unit) { detectTapGestures(onLongPress = { longPress.value() }) },
+        ) {
             Text("小满", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text("你的手机小助手", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

@@ -69,10 +69,10 @@ fun ChatScreen(graph: AppGraph, onOpenSettings: () -> Unit) {
     val notificationsGranted = rememberNotificationPermission()
     var draft by rememberSaveable { mutableStateOf("") }
     var picked by remember { mutableStateOf<PickedPhoto?>(null) }
-    val photoScope = rememberCoroutineScope()
+    val uiScope = rememberCoroutineScope()
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        photoScope.launch {
+        uiScope.launch {
             val bytes = withContext(Dispatchers.IO) { ImagePrep.load(context, uri) }
             val preview = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }
             if (bytes == null || preview == null) {
@@ -103,8 +103,21 @@ fun ChatScreen(graph: AppGraph, onOpenSettings: () -> Unit) {
         if (approval != null) { focus.clearFocus(); keyboard?.hide() }
     }
     Column(Modifier.fillMaxSize()) {
-        ChatHeader(ready = settings.configured, busy = busy,
-            attention = approval != null || question != null)
+        ChatHeader(
+            ready = settings.configured, busy = busy,
+            attention = approval != null || question != null,
+            onTitleLongPress = {
+                uiScope.launch {
+                    val sent = graph.taskScheduler.pushTest()
+                    val text = when {
+                        sent == null -> context.getString(R.string.digest_test_blocked)
+                        sent == 0 -> context.getString(R.string.digest_test_none)
+                        else -> context.getString(R.string.digest_test_sent, sent)
+                    }
+                    Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+                }
+            },
+        )
         // The accessibility banner only matters when a screen-reading operator model is configured.
         if (service == null && settings.operator.configured) {
             Banner(stringResource(R.string.banner_accessibility), stringResource(R.string.banner_accessibility_action)) {

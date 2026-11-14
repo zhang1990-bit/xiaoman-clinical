@@ -21,6 +21,7 @@ object AgentTools {
     const val TASK_LIST = "task_list"
     const val TASK_DONE = "task_done"
     const val TASK_UPDATE = "task_update"
+    const val TASK_ROSTER = "task_roster"
 
     val specs: List<ToolSpec> = listOf(
         ToolSpec(
@@ -136,6 +137,24 @@ object AgentTools {
                 "silentToday" to str("可选，填 true 表示用户说「看过了」，今天剩下的时点不再推这条"),
             ),
         ),
+        ToolSpec(
+            TASK_ROSTER,
+            "用 HIS 病房表照片里的床号+姓名，核对现有待办：谁调床了、谁的床上住了别人、谁已经不在表里。"
+                + "读图后把表格里的床号和姓名原样传进来，不要传诊断、住院号或检查结果。"
+                + "apply=true 时把能确定的调床直接改掉（同一个人换了床）；同床不同姓、同名多人只报告不动。",
+            schema(
+                listOf("beds"),
+                "beds" to arr(
+                    "HIS 表里读到的床位，一行一个",
+                    obj(
+                        "床号 + 姓名",
+                        "bed" to str("床号，如 12 或 12A"),
+                        "name" to str("姓名，照原样抄，屏幕上的星号保留，如 李**"),
+                    ),
+                ),
+                "apply" to bool("true 表示把能确定的调床直接改掉，默认 false 只报告"),
+            ),
+        ),
     )
 
     private fun schema(required: List<String>, vararg props: Pair<String, JsonObject>): JsonObject = buildJsonObject {
@@ -146,7 +165,14 @@ object AgentTools {
 
     private fun str(description: String) = buildJsonObject { put("type", "string"); put("description", description) }
     private fun int(description: String) = buildJsonObject { put("type", "integer"); put("description", description) }
+    private fun bool(description: String) = buildJsonObject { put("type", "boolean"); put("description", description) }
     private fun arr(description: String, items: JsonObject) = buildJsonObject {
         put("type", "array"); put("description", description); put("items", items)
+    }
+
+    private fun obj(description: String, vararg props: Pair<String, JsonObject>) = buildJsonObject {
+        put("type", "object"); put("description", description)
+        putJsonObject("properties") { props.forEach { (k, v) -> put(k, v) } }
+        putJsonArray("required") { props.forEach { (k, _) -> add(k) } }
     }
 }

@@ -98,6 +98,11 @@
     <string name="notification_question">小满有问题要问你</string>
     <string name="reminder_title">提醒</string>
     <string name="digest_title">今日 %1$d 条待关注</string>
+    <string name="digest_title_test">测试推送：今日 %1$d 条待关注</string>
+    <string name="digest_test_empty">现在没有到点的事项。能看到这条，说明通知通道是通的。</string>
+    <string name="digest_test_sent">已推送 %1$d 条待关注</string>
+    <string name="digest_test_none">没有到点的事项，已发一条测试通知</string>
+    <string name="digest_test_blocked">通知被系统拦了，去设置里允许通知</string>
 
     <!-- Session messages -->
     <string name="session_not_configured">还没有配置聊天模型，请先在设置里填写。</string>

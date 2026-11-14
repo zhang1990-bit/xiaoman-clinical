@@ -44,6 +44,16 @@ class TaskDigestScheduler(
         tasks.updateAll(due.map { it.copy(pushCount = it.pushCount + 1) })
     }
 
+    /**
+     * Long-press on the chat title: pushes today's card right away without counting a push.
+     * Returns how many tasks went in, or null when notifications are blocked.
+     */
+    suspend fun pushTest(): Int? {
+        val today = LocalDate.now()
+        val due = tasks.all().filter { it.isDue(today) }
+        return if (notifier.showDigest(due, today, test = true)) due.size else null
+    }
+
     companion object {
         private const val REQUEST_CODE = 4101
 
