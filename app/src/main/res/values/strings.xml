@@ -28,6 +28,15 @@
     <string name="banner_notifications">允许通知后，任务运行和需要确认时会提醒你。</string>
     <string name="banner_notifications_action">允许</string>
 
+    <!-- Photo input -->
+    <string name="chat_attach">发照片</string>
+    <string name="photo_default_prompt">帮我看看这张图</string>
+    <string name="photo_confirm_title">这张图可以发出去吗？</string>
+    <string name="photo_confirm_body">发之前看一眼：图里不要出现患者姓名、住院号、身份证号，也不要拍检查报告单的抬头。只拍你自己写的内容就安全。</string>
+    <string name="photo_send">确认发送</string>
+    <string name="photo_cancel">取消</string>
+    <string name="photo_failed">这张图读不出来，换一张试试。</string>
+
     <!-- Approvals -->
     <string name="approval_title">需要你确认</string>
     <string name="approval_once">允许一次</string>

@@ -416,7 +416,7 @@ class ClassGateway(
             }
         }
         private fun estimateMessages(messages: List<ChatMessage>): Long = messages.sumOf { m ->
-            m.parts.sumOf { when (it) { is ContentPart.ImagePng -> IMAGE_TOKENS; is ContentPart.Text -> it.text.toByteArray().size / 3L } } + 4
+            m.parts.sumOf { when (it) { is ContentPart.Image -> IMAGE_TOKENS; is ContentPart.Text -> it.text.toByteArray().size / 3L } } + 4
         }
         /** Output characters in a completion or stream chunk. */
         internal fun estimateCompletion(o: JsonObject?): Long = o?.arr("choices")?.sumOf { c ->

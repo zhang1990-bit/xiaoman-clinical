@@ -31,7 +31,11 @@ enum class ChatRole { SYSTEM, USER, ASSISTANT, TOOL }
 
 sealed class ContentPart {
     data class Text(val text: String) : ContentPart()
-    data class ImagePng(val bytes: ByteArray) : ContentPart()
+
+    /** An image sent as a base64 data URI; [mime] must match [bytes] (`image/png`, `image/jpeg`). */
+    data class Image(val bytes: ByteArray, val mime: String = "image/png") : ContentPart() {
+        fun dataUri(): String = "data:$mime;base64," + java.util.Base64.getEncoder().encodeToString(bytes)
+    }
 }
 
 data class ChatMessage(

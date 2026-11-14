@@ -6,6 +6,7 @@ import dev.xiaoman.api.AgentListener
 import dev.xiaoman.api.ApprovalAnswer
 import dev.xiaoman.api.ApprovalGateway
 import dev.xiaoman.api.ApprovalRequest
+import dev.xiaoman.api.ContentPart
 import dev.xiaoman.api.UserChannel
 import dev.xiaoman.app.RunIds
 import dev.xiaoman.hands.MutableStopSignal
@@ -119,24 +120,35 @@ class AgentSession(
         data object Empty : Submit()
     }
 
-    /** Chat input: answers a pending question, else starts a chat turn. */
-    fun submit(text: String): Submit {
+    /**
+     * Chat input: answers a pending question, else starts a chat turn.
+     *
+     * [images] go to the model with the text as `image_url` parts. The chat shows a count instead of
+     * the bitmap, and the agent keeps only a text note in its history, so a photo costs nothing
+     * after the turn it was sent in.
+     */
+    fun submit(text: String, images: List<ContentPart.Image> = emptyList()): Submit {
         val message = text.trim()
-        if (message.isEmpty()) return Submit.Empty
+        if (message.isEmpty() && images.isEmpty()) return Submit.Empty
+        val label = when {
+            images.isEmpty() -> message
+            message.isEmpty() -> "（${images.size} 张图）"
+            else -> "$message（附图 ${images.size} 张）"
+        }
         val pending = _question.value
-        if (pending != null && pending.answer.complete(message)) {
-            add(ChatItem.User(ids.incrementAndGet(), message))
+        if (pending != null && message.isNotEmpty() && pending.answer.complete(message)) {
+            add(ChatItem.User(ids.incrementAndGet(), label))
             return Submit.Answered
         }
         val agent = agent()
         if (agent == null) {
-            add(ChatItem.User(ids.incrementAndGet(), message))
+            add(ChatItem.User(ids.incrementAndGet(), label))
             add(ChatItem.Error(ids.incrementAndGet(), texts.notConfigured))
             return Submit.NotConfigured
         }
-        val started = launch(null) { agent.handle(message, listener, stopSignal) }
+        val started = launch(null) { agent.handleWithImages(message, images, listener, stopSignal) }
         if (!started) return Submit.Busy
-        add(ChatItem.User(ids.incrementAndGet(), message))
+        add(ChatItem.User(ids.incrementAndGet(), label))
         return Submit.Started
     }
 

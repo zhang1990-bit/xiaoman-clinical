@@ -32,7 +32,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
-import java.util.Base64
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -117,7 +116,7 @@ class OpenAiCompatibleClient(
 
     private fun encodeMessage(message: ChatMessage): JsonObject = buildJsonObject {
         put("role", message.role.name.lowercase())
-        val hasImage = message.parts.any { it is ContentPart.ImagePng }
+        val hasImage = message.parts.any { it is ContentPart.Image }
         when {
             hasImage -> putJsonArray("content") {
                 message.parts.forEach { part ->
@@ -127,11 +126,9 @@ class OpenAiCompatibleClient(
                                 put("type", "text")
                                 put("text", part.text)
                             }
-                            is ContentPart.ImagePng -> {
+                            is ContentPart.Image -> {
                                 put("type", "image_url")
-                                putJsonObject("image_url") {
-                                    put("url", "data:image/png;base64," + Base64.getEncoder().encodeToString(part.bytes))
-                                }
+                                putJsonObject("image_url") { put("url", part.dataUri()) }
                             }
                         }
                     }

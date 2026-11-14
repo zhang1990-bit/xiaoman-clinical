@@ -48,7 +48,7 @@ class PhoneTaskTest {
         val req = h.operator.requests[1]
         assertTrue(req.jsonMode)
         val user = req.messages.last()
-        assertTrue(user.parts.any { it is ContentPart.ImagePng })
+        assertTrue(user.parts.any { it is ContentPart.Image })
         assertTrue("打开设置里的 WLAN" in user.text)
         assertTrue("[0] TextView \"WLAN\" (0,0,1000,90) clickable" in user.text)
         assertTrue("第 1 步：打开 com.android.settings → 成功" in user.text)

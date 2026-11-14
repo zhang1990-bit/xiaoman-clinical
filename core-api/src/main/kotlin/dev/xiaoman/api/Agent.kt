@@ -64,6 +64,17 @@ interface Agent {
     /** Handles one chat turn: replies, memory tools, or a phone task. Suspends until the turn is done. */
     suspend fun handle(userMessage: String, listener: AgentListener, stop: StopSignal)
 
+    /**
+     * Same as [handle], with pictures attached by the user. The default drops them so that agents
+     * without vision keep working; [dev.xiaoman.agent.XiaomanAgent] sends them as `image_url` parts.
+     */
+    suspend fun handleWithImages(
+        userMessage: String,
+        images: List<ContentPart.Image>,
+        listener: AgentListener,
+        stop: StopSignal,
+    ) = handle(userMessage, listener, stop)
+
     /** Runs one phone task directly (used by the developer CLI and skill tests). */
     suspend fun runPhoneTask(goal: String, skillName: String?, listener: AgentListener, stop: StopSignal): AgentEvent.PhoneTaskFinished
 }

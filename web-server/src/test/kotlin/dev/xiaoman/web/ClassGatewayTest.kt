@@ -399,7 +399,7 @@ class ClassGatewayTest {
                 val app = dev.xiaoman.llm.OpenAiCompatibleClient(ModelConfig(ModelRole.OPERATOR, "http://127.0.0.1:${s.port}/v1/", "xiaoman-class", st.tokens[0]),
                     maxRetries = 0)
                 val reply = kotlinx.coroutines.runBlocking {
-                    app.complete(ChatRequest(listOf(ChatMessage(ChatRole.USER, listOf(ContentPart.Text("点哪里"), ContentPart.ImagePng(ByteArray(2048) { 7 })))),
+                    app.complete(ChatRequest(listOf(ChatMessage(ChatRole.USER, listOf(ContentPart.Text("点哪里"), ContentPart.Image(ByteArray(2048) { 7 })))),
                         jsonMode = true))
                 }
                 assertEquals("你好，我是小满", reply.text); assertEquals(Usage(100, 20), reply.usage)

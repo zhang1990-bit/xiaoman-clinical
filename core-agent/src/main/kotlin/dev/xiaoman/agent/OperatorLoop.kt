@@ -264,7 +264,7 @@ internal class OperatorLoop(
 
     private fun userMessage(text: String, screen: ScreenState) = ChatMessage(
         ChatRole.USER,
-        listOfNotNull(ContentPart.Text(text), screen.screenshotPng?.let { ContentPart.ImagePng(it) }),
+        listOfNotNull(ContentPart.Text(text), screen.screenshotPng?.let { ContentPart.Image(it) }),
     )
 
     companion object {

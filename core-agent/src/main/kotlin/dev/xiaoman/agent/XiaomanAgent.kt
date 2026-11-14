@@ -58,7 +58,23 @@ class XiaomanAgent(
     private val historyLock = Mutex()
     private val history = ArrayDeque<ChatMessage>()
 
-    override suspend fun handle(userMessage: String, listener: AgentListener, stop: StopSignal) {
+    override suspend fun handle(userMessage: String, listener: AgentListener, stop: StopSignal) =
+        handle(userMessage, emptyList(), listener, stop)
+
+    /** Chat turn with pictures from the user's camera or gallery. */
+    override suspend fun handleWithImages(
+        userMessage: String,
+        images: List<ContentPart.Image>,
+        listener: AgentListener,
+        stop: StopSignal,
+    ) = handle(userMessage, images, listener, stop)
+
+    private suspend fun handle(
+        userMessage: String,
+        images: List<ContentPart.Image>,
+        listener: AgentListener,
+        stop: StopSignal,
+    ) {
         val taskId = idFactory()
         val emit: (AgentEvent) -> Unit = listener::onEvent
         val tools = ChatTools(
@@ -76,7 +92,7 @@ class XiaomanAgent(
             val toolSpecs = builtIn + externalSpecs()
             val system = ChatMessage.system(systemPrompt(userMessage, hasExternalTools = toolSpecs.size > builtIn.size))
             val past = historyLock.withLock { history.toList() }
-            val turn = mutableListOf(ChatMessage.user(userMessage))
+            val turn = mutableListOf(ChatMessage(ChatRole.USER, listOf(ContentPart.Text(userMessage)) + images))
             var lastText: String? = null
             var finalText: String? = null
             for (round in 0..MAX_TOOL_ROUNDS) {
@@ -100,7 +116,9 @@ class XiaomanAgent(
                 if (stop.stopped) break
             }
             if (!finalText.isNullOrEmpty()) emit(AgentEvent.Reply(taskId, finalText))
-            remember(userMessage, finalText?.takeIf { it.isNotEmpty() } ?: lastText)
+            // Images stay in this turn only: the history keeps a text note so later turns stay cheap.
+            val historyText = if (images.isEmpty()) userMessage else "$userMessage（附图 ${images.size} 张）"
+            remember(historyText, finalText?.takeIf { it.isNotEmpty() } ?: lastText)
         } catch (e: LlmException) {
             emit(AgentEvent.Failed(taskId, Prompts.llmFailed(e)))
         }

@@ -92,7 +92,7 @@ class OpenAiCompatibleClientTest {
         val request = ChatRequest(
             messages = listOf(
                 ChatMessage.system("be brief"),
-                ChatMessage(ChatRole.USER, listOf(ContentPart.Text("what is this?"), ContentPart.ImagePng(png))),
+                ChatMessage(ChatRole.USER, listOf(ContentPart.Text("what is this?"), ContentPart.Image(png))),
                 ChatMessage(ChatRole.ASSISTANT, emptyList(), toolCalls = listOf(ToolCall("call_1", "weather", """{"city":"北京"}"""))),
                 ChatMessage.tool("call_1", "sunny"),
             ),
