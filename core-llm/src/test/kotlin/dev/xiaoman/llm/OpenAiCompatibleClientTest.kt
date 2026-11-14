@@ -82,6 +82,17 @@ class OpenAiCompatibleClientTest {
     private fun takeBody(): JsonObject = Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject
 
     @Test
+    fun `thinking is turned off for deepseek and left alone elsewhere`() {
+        val request = ChatRequest(listOf(ChatMessage.user("x")))
+        val deepseek = OpenAiCompatibleClient(config().copy(baseUrl = "https://api.deepseek.com/v1"))
+            .buildBody(request, jsonMode = false)
+        assertEquals("disabled", deepseek["thinking"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+
+        val other = client().buildBody(request, jsonMode = false)
+        assertNull(other["thinking"])
+    }
+
+    @Test
     fun `request body includes image, tools, json mode and sampling params`() = runTest {
         server.enqueue(ok(simpleReply))
         val png = byteArrayOf(1, 2, 3, 4)

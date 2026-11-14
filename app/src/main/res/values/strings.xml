@@ -74,7 +74,7 @@
     <string name="settings_api_key">API Key</string>
     <string name="settings_show_key">显示 API Key</string>
     <string name="settings_hide_key">隐藏 API Key</string>
-    <string name="settings_temperature">Temperature（可选）</string>
+    <string name="settings_temperature">Temperature（留空用 0.2）</string>
     <string name="settings_agent">任务</string>
     <string name="settings_max_steps">最多步数</string>
     <string name="settings_learn">成功后记住操作路径</string>

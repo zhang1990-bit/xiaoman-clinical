@@ -114,6 +114,12 @@ class OpenAiCompatibleClient(
             }
         }
         if (jsonMode) putJsonObject("response_format") { put("type", "json_object") }
+        // DeepSeek's flash model can think before answering: thinking tokens cost money, add seconds
+        // to every ward-side turn and make `temperature` ineffective. Ask for it off, but only on
+        // DeepSeek - another compatible endpoint would reject an unknown field.
+        if (config.baseUrl.contains("deepseek", ignoreCase = true)) {
+            putJsonObject("thinking") { put("type", "disabled") }
+        }
         config.temperature?.let { put("temperature", it) }
         config.maxTokens?.let { put("max_tokens", it) }
     }

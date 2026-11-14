@@ -18,7 +18,9 @@ data class ModelSettings(
         baseUrl = baseUrl.trim(),
         model = model.trim(),
         apiKey = apiKey.trim(),
-        temperature = temperature,
+        // Blank means the app default, not the provider default: 1.0 is far too loose for pulling
+        // bed numbers and dates out of dictated speech.
+        temperature = temperature ?: DEFAULT_TEMPERATURE,
     )
 
     override fun toString() =
@@ -27,7 +29,12 @@ data class ModelSettings(
     companion object {
         /** DeepSeek by default; any OpenAI-compatible endpoint works. */
         const val DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
-        const val DEFAULT_CHAT_MODEL = "deepseek-v4.1-flash"
+
+        /** The API id, not the model's marketing name: `deepseek-v4.1-flash` is rejected with 400. */
+        const val DEFAULT_CHAT_MODEL = "deepseek-flash"
+
+        /** Sampling temperature used when the field is left blank. */
+        const val DEFAULT_TEMPERATURE = 0.2
     }
 }
 

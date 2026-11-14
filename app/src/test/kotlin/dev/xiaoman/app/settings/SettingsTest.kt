@@ -1,6 +1,7 @@
 package dev.xiaoman.app.settings
 
 import android.content.Context
+import dev.xiaoman.api.ModelRole
 import org.robolectric.RuntimeEnvironment
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,8 +33,16 @@ class SettingsTest {
     @Test fun `defaults point at DeepSeek and are not configured until a key is entered`() {
         val s = store().current
         assertEquals("https://api.deepseek.com/v1", s.chat.baseUrl)
-        assertEquals("deepseek-v4.1-flash", s.chat.model)
+        assertEquals("deepseek-flash", s.chat.model)
         assertFalse(s.configured)
+    }
+
+    @Test fun `blank temperature falls back to the app default, not the provider default`() {
+        val blank = SettingsForm.ModelForm(apiKey = key).toSettings()!!
+        assertEquals(ModelSettings.DEFAULT_TEMPERATURE, blank.toModelConfig(ModelRole.CHAT).temperature)
+
+        val typed = SettingsForm.ModelForm(apiKey = key, temperature = "0.7").toSettings()!!
+        assertEquals(0.7, typed.toModelConfig(ModelRole.CHAT).temperature)
     }
 
     @Test fun `a chat model alone is enough, the operator model is optional`() {
