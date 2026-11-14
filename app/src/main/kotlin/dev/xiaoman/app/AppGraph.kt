@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.Log
 import dev.xiaoman.agent.XiaomanAgent
 import dev.xiaoman.api.Agent
+import dev.xiaoman.api.ChatMessage
+import dev.xiaoman.api.ChatRequest
+import dev.xiaoman.api.ModelConfig
 import dev.xiaoman.api.ModelRole
 import dev.xiaoman.app.session.AgentSession
 import dev.xiaoman.app.session.SessionTexts
@@ -152,6 +155,17 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         private set
 
     private var cachedAgent: Pair<Pair<AppSettings, McpSelection>, Agent>? = null
+
+    /**
+     * One tiny request with the settings currently typed on screen, so the Settings screen can show
+     * the provider's own error ("Model Not Exist") instead of a generic "模型服务暂时不可用".
+     */
+    suspend fun testChatModel(config: ModelConfig): Result<String> = runCatching {
+        val reply = llm.create(config)
+            .complete(ChatRequest(listOf(ChatMessage.user("你好"))))
+            .text.trim()
+        reply.ifBlank { "（回复为空，但连接是通的）" }
+    }
 
     /** The agent for the current settings, rebuilt when they change; null until the chat model is configured. */
     @Synchronized

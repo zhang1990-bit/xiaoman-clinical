@@ -79,6 +79,8 @@ data class ChatResponse(
 
 class LlmException(message: String, val statusCode: Int? = null, val retryable: Boolean = false, cause: Throwable? = null,
     val providerCode: String? = null,
+    /** The provider's own one-line explanation, e.g. "Model Not Exist"; already redacted and truncated. */
+    val providerMessage: String? = null,
 ) :
     Exception(message, cause)
 

@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import dev.xiaoman.app.AppGraph
 import dev.xiaoman.app.R
 import dev.xiaoman.app.settings.SettingsForm
+import dev.xiaoman.api.ModelRole
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(graph: AppGraph) {
@@ -57,6 +60,7 @@ fun SettingsScreen(graph: AppGraph) {
             form = form.copy(chat = it)
             saved = false
         }
+        ConnectionTest(graph, form.chat)
         HorizontalDivider()
         ModelSection(stringResource(R.string.settings_operator_model), form.operator) {
             form = form.copy(operator = it)
@@ -110,6 +114,45 @@ fun SettingsScreen(graph: AppGraph) {
         Text(stringResource(R.string.settings_folder_skills, graph.skillsDir.path), style = MaterialTheme.typography.bodySmall)
         Text(stringResource(R.string.settings_folder_memory, graph.memoryDir.path), style = MaterialTheme.typography.bodySmall)
         Text(stringResource(R.string.settings_folder_traces, graph.tracesDir.path), style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun ConnectionTest(graph: AppGraph, model: SettingsForm.ModelForm) {
+    val scope = rememberCoroutineScope()
+    var testing by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<String?>(null) }
+    val target = model.toSettings()?.takeIf { it.configured }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TextButton(
+            enabled = target != null && !testing,
+            onClick = {
+                val settings = target ?: return@TextButton
+                testing = true
+                result = null
+                scope.launch {
+                    result = graph.testChatModel(settings.toModelConfig(ModelRole.CHAT)).fold(
+                        onSuccess = { "连接正常：${it.take(40)}" },
+                        onFailure = { it.message ?: it.javaClass.simpleName },
+                    )
+                    testing = false
+                }
+            },
+        ) { Text(stringResource(if (testing) R.string.settings_testing else R.string.settings_test)) }
+        if (target == null) {
+            Text(
+                stringResource(R.string.settings_test_hint),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+    }
+    result?.let {
+        Text(
+            it,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
     }
 }
 

@@ -293,6 +293,7 @@ class OpenAiCompatibleClientTest {
             client().complete(ChatRequest(listOf(ChatMessage.user("x")), jsonMode = true))
         }
         assertEquals(400, e.statusCode)
+        assertEquals("bad messages", e.providerMessage)
         assertEquals(1, server.requestCount)
     }
 
@@ -301,6 +302,7 @@ class OpenAiCompatibleClientTest {
         server.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":{"message":"key $apiKey is not allowed"}}"""))
         val e = assertFailsWith<LlmException> { client().complete(ChatRequest(listOf(ChatMessage.user("x")))) }
         assertFalse(apiKey in e.message!!)
+        assertFalse(apiKey in (e.providerMessage ?: ""))
         assertTrue("***" in e.message!!)
         assertFalse(apiKey in e.toString())
     }

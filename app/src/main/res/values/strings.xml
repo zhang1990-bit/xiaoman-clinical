@@ -80,6 +80,9 @@
     <string name="settings_learn">成功后记住操作路径</string>
     <string name="settings_save">保存</string>
     <string name="settings_saved">已保存</string>
+    <string name="settings_test">测试连接</string>
+    <string name="settings_testing">正在测试…</string>
+    <string name="settings_test_hint">三个框都填了才能测</string>
     <string name="settings_invalid_number">请输入有效的数字</string>
     <string name="settings_copy_chat">与聊天模型相同（只在要用读屏操作时填）</string>
     <string name="settings_folders">文件夹</string>

@@ -41,17 +41,43 @@ object Prompts {
     const val TOOL_ROUNDS_EXCEEDED = "（工具调用次数过多，本轮先到这里。）"
     const val LLM_FAILED = "抱歉，模型服务暂时不可用，请稍后再试。"
 
+    /** 4xx that no amount of retrying fixes: a wrong key, a wrong model name, a malformed request. */
+    const val LLM_REJECTED = "模型服务拒绝了这次请求（配置问题，重试无效）。"
+
+    private val REJECTED_CODES = setOf(400, 401, 403, 404, 422)
+
     fun llmFailed(error: LlmException): String {
-        val message = if (error.providerCode == "SetLimitExceeded") "模型服务因账号限额暂停。" else LLM_FAILED
+        val message = when {
+            error.providerCode == "SetLimitExceeded" -> "模型服务因账号限额暂停。"
+            error.statusCode in REJECTED_CODES -> LLM_REJECTED
+            else -> LLM_FAILED
+        }
         return llmErrorDetail(error)?.let { "$message（$it）" } ?: message
     }
 
     fun llmErrorDetail(error: LlmException): String? = listOfNotNull(
         error.statusCode?.let { "错误码 $it" }, error.providerCode,
+        error.providerMessage?.take(120),
+        providerHint(error.providerMessage),
         if (error.providerCode == "SetLimitExceeded")
             "模型已达到账号设置的推理限额，请检查方舟的模型限额、安心体验和账户余额；重试无法恢复"
         else null,
     ).joinToString("；").takeIf { it.isNotEmpty() }
+
+    /** Turns the providers' usual 4xx wording into one Chinese sentence worth acting on. */
+    private fun providerHint(message: String?): String? {
+        val m = message ?: return null
+        fun has(vararg keys: String) = keys.any { m.contains(it, ignoreCase = true) }
+        return when {
+            has("model not exist", "model_not_found", "invalid model", "model not found") ->
+                "模型名称不对，去控制台复制确切的模型 ID 填进设置"
+            has("authentication", "invalid api key", "incorrect api key") -> "API Key 不对或已失效"
+            has("insufficient balance") -> "账户余额不足"
+            has("tool", "function call") -> "这个模型不支持函数调用，换一个支持 tools 的模型"
+            has("context length", "maximum context", "too long") -> "这一轮内容太长，超出模型上下文长度"
+            else -> null
+        }
+    }
 
     fun operatorLlmFailed(error: LlmException): String =
         llmErrorDetail(error)?.let { "$OPERATOR_LLM_FAILED（$it）" } ?: OPERATOR_LLM_FAILED

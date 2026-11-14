@@ -87,8 +87,12 @@ class OpenAiCompatibleClient(
                 sleep(backoff(attempt++, result.retryAfter))
                 continue
             }
-            throw LlmException(redact("HTTP ${result.code} from $url: ${errorDetail(result.body)}"), result.code, retryable,
-                providerCode = providerCode)
+            throw LlmException(
+                redact("HTTP ${result.code} from $url: ${errorDetail(result.body)}"), result.code, retryable,
+                providerCode = providerCode,
+                // The provider's own words are the only way to tell a wrong model name from a bad key.
+                providerMessage = redact(errorDetail(result.body)).take(PROVIDER_MESSAGE_CHARS).ifBlank { null },
+            )
         }
     }
 
@@ -246,6 +250,8 @@ class OpenAiCompatibleClient(
     private class HttpResult(val code: Int, val body: String, val retryAfter: String?)
 
     private companion object {
+        /** Keeps the chat bubble readable; a provider message is one line in practice. */
+        const val PROVIDER_MESSAGE_CHARS = 160
         val json = Json { ignoreUnknownKeys = true }
         val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 

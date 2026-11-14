@@ -32,6 +32,22 @@ class ModelErrorTest {
         assertFalse("secret" in result.summary)
     }
 
+    @Test fun wrongModelNameIsShownWithTheProvidersOwnWords() = runTest {
+        val h = Harness()
+        h.chat.fallback = {
+            throw LlmException(
+                "HTTP 400 from https://api.deepseek.com/v1/chat/completions: Model Not Exist",
+                400, providerCode = "invalid_request_error", providerMessage = "Model Not Exist",
+            )
+        }
+        h.agent.handle("明天有两个出院要整", h.events, h.stop)
+        val error = h.events.of<AgentEvent.Failed>().single().message
+        assertTrue("400" in error && "invalid_request_error" in error, error)
+        assertTrue("Model Not Exist" in error, error)
+        assertTrue("模型名称不对" in error, error)
+        assertTrue("重试无效" in error, error)
+    }
+
     private fun quotaError(): Nothing = throw LlmException(
         "raw body contains secret", 429, providerCode = "QuotaExceeded.FreeTier",
     )
