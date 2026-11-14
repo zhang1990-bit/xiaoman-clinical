@@ -1,6 +1,8 @@
 package dev.xiaoman.agent
 
 import dev.xiaoman.api.AgentEvent
+import dev.xiaoman.api.AnchorKind
+import dev.xiaoman.api.CareTask
 import dev.xiaoman.api.MemoryStore
 import dev.xiaoman.api.Note
 import dev.xiaoman.api.Observation
@@ -8,8 +10,14 @@ import dev.xiaoman.api.Relation
 import dev.xiaoman.api.ReminderScheduler
 import dev.xiaoman.api.Skill
 import dev.xiaoman.api.SkillRepository
+import dev.xiaoman.api.TaskAnchor
+import dev.xiaoman.api.TaskRule
+import dev.xiaoman.api.TaskRuleKind
+import dev.xiaoman.api.TaskState
+import dev.xiaoman.api.TaskStore
 import dev.xiaoman.api.ToolCall
 import dev.xiaoman.api.ToolProvider
+import dev.xiaoman.api.toDateOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -21,6 +29,11 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+
+private const val DEFAULT_UNTIL_DAYS = 14L
 
 internal class ToolArgumentException(message: String) : Exception(message)
 
@@ -33,6 +46,8 @@ internal class ChatTools(
     private val external: ToolProvider?,
     private val phoneTasks: Boolean = true,
     private val phoneTask: suspend (goal: String, skill: String?) -> AgentEvent.PhoneTaskFinished,
+    /** Clinical tasks; the tools are only offered when the app injects a store. */
+    private val tasks: TaskStore? = null,
 ) {
     suspend fun execute(call: ToolCall, taskId: String, emit: (AgentEvent) -> Unit): String = try {
         val args = parseArgs(call.argumentsJson)
@@ -43,6 +58,10 @@ internal class ChatTools(
             AgentTools.MEMORY_FORGET -> forget(args, taskId, emit)
             AgentTools.LIST_SKILLS -> listSkills()
             AgentTools.REMINDER_SET -> reminder(args)
+            AgentTools.TASK_ADD -> taskAdd(args)
+            AgentTools.TASK_LIST -> taskList(args)
+            AgentTools.TASK_DONE -> taskDone(args)
+            AgentTools.TASK_UPDATE -> taskUpdate(args)
             AgentTools.PHONE_TASK -> if (phoneTasks) phone(args) else error("这里不能操作手机，请用其他工具或告诉用户自己操作")
             else -> external(call, taskId, emit)
         }
@@ -174,6 +193,164 @@ internal class ChatTools(
             put("text", text)
             put("at", raw)
         }.toString()
+    }
+
+    private fun today(): LocalDate =
+        Instant.ofEpochMilli(clock()).atZone(ZoneId.systemDefault()).toLocalDate()
+
+    private suspend fun taskAdd(args: JsonObject): String {
+        val store = tasks ?: return error("待办功能没有启用")
+        val today = today()
+        val items = objects(args, "items")
+        if (items.isEmpty()) throw ToolArgumentException("items 不能为空")
+        val stamp = clock()
+        val created = items.mapIndexed { index, o ->
+            val bed = required(o, "bed").trim()
+            val name = required(o, "name").trim()
+            val item = required(o, "item").trim()
+            val until = (JsonText.string(o, "until") ?: today.plusDays(DEFAULT_UNTIL_DAYS).toString())
+                .toDateOrNull() ?: throw ToolArgumentException("until 应是 yyyy-MM-dd")
+            val kind = when (JsonText.string(o, "rule")?.lowercase()) {
+                "monthly", "每月" -> TaskRuleKind.MONTHLY
+                else -> TaskRuleKind.DAILY
+            }
+            val days = (o["days"] as? JsonArray)
+                ?.mapNotNull { (it as? JsonPrimitive)?.content?.toIntOrNull() }
+                .orEmpty()
+            CareTask(
+                id = "t-$stamp-$index",
+                bed = bed,
+                name = name,
+                patientKey = JsonText.string(o, "patientKey") ?: name,
+                item = item,
+                note = JsonText.string(o, "note").orEmpty(),
+                rule = TaskRule(kind, days),
+                anchor = anchorOf(o),
+                state = TaskState.ACTIVE,
+                until = until.toString(),
+                createdAt = today.toString(),
+            )
+        }
+        store.add(created)
+        return result("已记录", created, today)
+    }
+
+    private fun anchorOf(o: JsonObject): TaskAnchor? = when (JsonText.string(o, "anchor")?.lowercase()) {
+        "surgery", "术后" -> TaskAnchor(AnchorKind.SURGERY, intOf(o, "offsetDays") ?: 0)
+        "discharge", "出院" -> TaskAnchor(AnchorKind.DISCHARGE, intOf(o, "offsetDays") ?: 0)
+        "date" -> JsonText.string(o, "date")?.toDateOrNull()?.let { TaskAnchor(AnchorKind.DATE, 0, it.toString()) }
+        else -> null
+    }
+
+    private fun intOf(o: JsonObject, key: String): Int? = (o[key] as? JsonPrimitive)?.intOrNull
+
+    private suspend fun taskList(args: JsonObject): String {
+        val store = tasks ?: return error("待办功能没有启用")
+        val today = today()
+        val scope = (JsonText.string(args, "scope") ?: "today").lowercase()
+        val bed = JsonText.string(args, "bed")
+        val all = store.all()
+        val selected = when (scope) {
+            "all" -> all.filter { it.state != TaskState.DONE }
+            "expired" -> all.filter { it.isStale(today) }
+            "bed" -> all.filter { it.state != TaskState.DONE && (bed == null || it.bed == bed) }
+            else -> all.filter { it.isDue(today) }
+        }.sortedWith(compareBy({ it.bed.toIntOrNull() ?: Int.MAX_VALUE }, { it.item }))
+        val label = when {
+            selected.isEmpty() -> "没有待办"
+            scope == "expired" -> "过期未确认"
+            else -> "待办"
+        }
+        return result(label, selected, today)
+    }
+
+    private suspend fun taskDone(args: JsonObject): String {
+        val store = tasks ?: return error("待办功能没有启用")
+        val today = today()
+        val reason = JsonText.string(args, "reason") ?: "已办"
+        val id = JsonText.string(args, "id")
+        if (id != null) {
+            val t = store.find(id) ?: return error("找不到待办 $id")
+            val closed = t.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = reason)
+            store.update(closed)
+            return result("已关闭", listOf(closed), today)
+        }
+        val bed = JsonText.string(args, "bed") ?: throw ToolArgumentException("需要 id 或 bed")
+        val keyword = JsonText.string(args, "keyword")
+        val hits = store.all().filter {
+            it.bed == bed && it.state != TaskState.DONE && (keyword == null || it.item.contains(keyword))
+        }
+        if (hits.isEmpty()) return result("没有匹配的待办", emptyList(), today)
+        val closed = hits.map { it.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = reason) }
+        store.updateAll(closed)
+        return result("已关闭", closed, today)
+    }
+
+    private suspend fun taskUpdate(args: JsonObject): String {
+        val store = tasks ?: return error("待办功能没有启用")
+        val today = today()
+        val id = JsonText.string(args, "id")
+        val fromBed = JsonText.string(args, "fromBed")
+        val bed = JsonText.string(args, "bed")
+        val targets = when {
+            id != null -> listOfNotNull(store.find(id))
+            fromBed != null -> store.all().filter { it.bed == fromBed }
+            bed != null -> store.all().filter { it.bed == bed }
+            else -> throw ToolArgumentException("需要 id、fromBed 或 bed")
+        }
+        if (targets.isEmpty()) return result("没有匹配的待办", emptyList(), today)
+        val until = JsonText.string(args, "until")?.toDateOrNull()?.toString()
+        val item = JsonText.string(args, "item")
+        val anchorDate = JsonText.string(args, "anchorDate")?.toDateOrNull()?.toString()
+        val state = JsonText.string(args, "state")?.lowercase()
+        val silent = JsonText.string(args, "silentToday")?.let { it == "true" || it == "是" } == true
+        val updated = targets.map { t ->
+            var next = t
+            if (bed != null) next = next.copy(bed = bed)
+            if (until != null) next = next.copy(until = until)
+            if (item != null) next = next.copy(item = item)
+            if (anchorDate != null) next = next.copy(anchorDate = anchorDate)
+            if (silent) next = next.copy(silentDate = today.toString())
+            when (state) {
+                "done" -> next = next.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = "手动关闭")
+                "active" -> next = next.copy(state = TaskState.ACTIVE, closedAt = null, closeReason = null)
+            }
+            next
+        }
+        store.updateAll(updated)
+        return result("已更新", updated, today)
+    }
+
+    private fun result(label: String, tasks: List<CareTask>, today: LocalDate): String = buildJsonObject {
+        put("ok", true)
+        put("message", label)
+        put("count", tasks.size)
+        putJsonArray("tasks") {
+            tasks.forEach { t ->
+                addJsonObject {
+                    put("id", t.id)
+                    put("line", taskLine(t, today))
+                }
+            }
+        }
+    }.toString()
+
+    private fun taskLine(t: CareTask, today: LocalDate): String = buildString {
+        append(t.bed).append("床 ").append(t.name).append("｜").append(t.item)
+        append("｜第").append(t.dayNumber(today)).append("天")
+        if (t.state == TaskState.DONE) append("｜已办")
+        if (t.isStale(today)) append("｜已过期未确认") else if (t.pushCount > 0) append("｜已推").append(t.pushCount).append("次")
+        val anchor = t.anchor
+        if (anchor != null && t.anchorDate == null) {
+            append("｜等")
+            append(
+                when (anchor.kind) {
+                    AnchorKind.SURGERY -> "手术"
+                    AnchorKind.DISCHARGE -> "出院"
+                    AnchorKind.DATE -> "指定日期"
+                },
+            )
+        }
     }
 
     private suspend fun external(call: ToolCall, taskId: String, emit: (AgentEvent) -> Unit): String {

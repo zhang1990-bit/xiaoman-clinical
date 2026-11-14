@@ -13,6 +13,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import dev.xiaoman.app.session.PendingApproval
 import dev.xiaoman.app.session.PendingQuestion
+import dev.xiaoman.api.CareTask
+import java.time.LocalDate
 
 /** Notification channels and the four notifications: status (foreground service), approval, question, reminder. */
 class Notifier(private val context: Context) {
@@ -105,6 +107,27 @@ class Notifier(private val context: Context) {
         manager.notify(id, notification)
     }
 
+    /** One aggregated notification per checkpoint, so several tasks never stack up as separate cards. */
+    fun showDigest(tasks: List<CareTask>, today: LocalDate) {
+        if (!allowed() || tasks.isEmpty()) return
+        val lines = tasks.joinToString("\n") { t ->
+            "${t.bed}床 ${t.name}｜${t.item}（第${t.dayNumber(today)}天）"
+        }
+        val preview = tasks.take(3).joinToString("；") { "${it.bed}床${it.item}" } +
+            if (tasks.size > 3) " 等 ${tasks.size} 条" else ""
+        val notification = NotificationCompat.Builder(context, CHANNEL_REMINDERS)
+            .setSmallIcon(R.drawable.ic_stat_xiaoman)
+            .setContentTitle(context.getString(R.string.digest_title, tasks.size))
+            .setContentText(preview)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(lines))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .setContentIntent(openApp())
+            .build()
+        manager.notify(ID_DIGEST, notification)
+    }
+
     private fun allowed(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -129,5 +152,6 @@ class Notifier(private val context: Context) {
         const val ID_STATUS = 1
         const val ID_APPROVAL = 2
         const val ID_QUESTION = 3
+        const val ID_DIGEST = 4
     }
 }

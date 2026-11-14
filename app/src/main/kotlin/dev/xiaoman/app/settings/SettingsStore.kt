@@ -39,16 +39,16 @@ class SettingsStore(private val plain: SharedPreferences, internal val secret: S
     private fun load(): AppSettings {
         val defaults = AppSettings()
         return AppSettings(
-            chat = model(CHAT),
-            operator = model(OPERATOR),
+            chat = model(CHAT, defaults.chat.model),
+            operator = model(OPERATOR, defaults.operator.model),
             maxSteps = plain.getInt(MAX_STEPS, defaults.maxSteps),
             learnFromSuccess = plain.getBoolean(LEARN, defaults.learnFromSuccess),
         )
     }
 
-    private fun model(prefix: String) = ModelSettings(
+    private fun model(prefix: String, defaultModel: String) = ModelSettings(
         baseUrl = plain.getString(prefix + BASE_URL, null) ?: ModelSettings.DEFAULT_BASE_URL,
-        model = plain.getString(prefix + MODEL, null).orEmpty(),
+        model = plain.getString(prefix + MODEL, null) ?: defaultModel,
         apiKey = secret.getString(prefix + API_KEY, null).orEmpty(),
         temperature = plain.getString(prefix + TEMPERATURE, null)?.toDoubleOrNull(),
     )

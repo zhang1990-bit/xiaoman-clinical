@@ -61,9 +61,10 @@ fun ChatScreen(graph: AppGraph, onOpenSettings: () -> Unit) {
         if (approval != null) { focus.clearFocus(); keyboard?.hide() }
     }
     Column(Modifier.fillMaxSize()) {
-        ChatHeader(ready = settings.configured && service != null, busy = busy,
+        ChatHeader(ready = settings.configured, busy = busy,
             attention = approval != null || question != null)
-        if (service == null) {
+        // The accessibility banner only matters when a screen-reading operator model is configured.
+        if (service == null && settings.operator.configured) {
             Banner(stringResource(R.string.banner_accessibility), stringResource(R.string.banner_accessibility_action)) {
                 context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             }

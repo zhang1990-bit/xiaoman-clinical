@@ -29,10 +29,17 @@ class SettingsTest {
         learnFromSuccess = false,
     )
 
-    @Test fun `defaults point at Volcano Ark and are not configured`() {
+    @Test fun `defaults point at DeepSeek and are not configured until a key is entered`() {
         val s = store().current
-        assertEquals("https://ark.cn-beijing.volces.com/api/v3", s.chat.baseUrl)
+        assertEquals("https://api.deepseek.com/v1", s.chat.baseUrl)
+        assertEquals("deepseek-chat", s.chat.model)
         assertFalse(s.configured)
+    }
+
+    @Test fun `a chat model alone is enough, the operator model is optional`() {
+        val chatOnly = AppSettings(chat = ModelSettings(model = "deepseek-chat", apiKey = key))
+        assertTrue(chatOnly.configured)
+        assertFalse(chatOnly.operator.configured)
     }
 
     @Test fun `round trip keeps every field and keys stay out of the plain file`() {

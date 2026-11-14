@@ -23,7 +23,7 @@
     <string name="chat_error_label">出错了</string>
     <string name="banner_accessibility">无障碍服务未开启，小满还不能操作其他 App。</string>
     <string name="banner_accessibility_action">去开启</string>
-    <string name="banner_models">还没有配置聊天模型和操作模型。</string>
+    <string name="banner_models">还没有配置聊天模型。</string>
     <string name="banner_models_action">去设置</string>
     <string name="banner_notifications">允许通知后，任务运行和需要确认时会提醒你。</string>
     <string name="banner_notifications_action">允许</string>
@@ -59,7 +59,7 @@
     <!-- Settings -->
     <string name="settings_title">设置</string>
     <string name="settings_chat_model">聊天模型</string>
-    <string name="settings_operator_model">操作模型（需支持图片）</string>
+    <string name="settings_operator_model">操作模型（可留空，本版本不用读屏）</string>
     <string name="settings_base_url">Base URL</string>
     <string name="settings_model">模型名称</string>
     <string name="settings_api_key">API Key</string>
@@ -72,7 +72,7 @@
     <string name="settings_save">保存</string>
     <string name="settings_saved">已保存</string>
     <string name="settings_invalid_number">请输入有效的数字</string>
-    <string name="settings_copy_chat">与聊天模型相同</string>
+    <string name="settings_copy_chat">与聊天模型相同（只在要用读屏操作时填）</string>
     <string name="settings_folders">文件夹</string>
     <string name="settings_folder_skills">技能：%1$s</string>
     <string name="settings_folder_memory">记忆：%1$s</string>
@@ -88,9 +88,10 @@
     <string name="notification_running">小满正在工作</string>
     <string name="notification_question">小满有问题要问你</string>
     <string name="reminder_title">提醒</string>
+    <string name="digest_title">今日 %1$d 条待关注</string>
 
     <!-- Session messages -->
-    <string name="session_not_configured">还没有配置模型，请先在设置里填写聊天模型和操作模型。</string>
+    <string name="session_not_configured">还没有配置聊天模型，请先在设置里填写。</string>
     <string name="session_busy">已有任务在运行，请稍后再试。</string>
     <string name="session_stopped">已停止</string>
 

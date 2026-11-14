@@ -75,6 +75,7 @@ dependencies {
     implementation(project(":core-sentinel"))
     implementation(project(":core-agent"))
     implementation(project(":core-mcp"))
+    implementation(project(":core-tasks"))
     implementation(project(":hands"))
 
     implementation(libs.androidx.core.ktx)

@@ -7,6 +7,7 @@ import dev.xiaoman.api.AgentEvent
 import dev.xiaoman.api.AgentListener
 import dev.xiaoman.api.AppInfo
 import dev.xiaoman.api.Bounds
+import dev.xiaoman.api.CareTask
 import dev.xiaoman.api.ChatRequest
 import dev.xiaoman.api.ChatResponse
 import dev.xiaoman.api.Decision
@@ -18,6 +19,7 @@ import dev.xiaoman.api.MemoryStore
 import dev.xiaoman.api.ModelConfig
 import dev.xiaoman.api.ModelRole
 import dev.xiaoman.api.Note
+import dev.xiaoman.api.TaskStore
 import dev.xiaoman.api.Observation
 import dev.xiaoman.api.ReminderScheduler
 import dev.xiaoman.api.ScreenState
@@ -155,6 +157,27 @@ class Stop(var value: Boolean = false) : StopSignal {
     override val stopped get() = value
 }
 
+/** In-memory [TaskStore] so the task_* tools are offered in tests that expect every built-in tool. */
+class FakeTaskStore : TaskStore {
+    val items = mutableListOf<CareTask>()
+
+    override suspend fun all(): List<CareTask> = items.toList()
+
+    override suspend fun add(tasks: List<CareTask>): List<CareTask> {
+        items += tasks
+        return tasks
+    }
+
+    override suspend fun update(task: CareTask): CareTask? {
+        val index = items.indexOfFirst { it.id == task.id }
+        if (index < 0) return null
+        items[index] = task
+        return task
+    }
+
+    override suspend fun find(id: String): CareTask? = items.firstOrNull { it.id == id }
+}
+
 /** Wires a [XiaomanAgent] with fakes; tests tweak the parts they care about. */
 class Harness(
     val chat: ScriptedLlm = ScriptedLlm(ModelRole.CHAT),
@@ -167,9 +190,13 @@ class Harness(
     val reminders: FakeReminderScheduler = FakeReminderScheduler(),
     val config: AgentConfig = AgentConfig(),
     val clock: () -> Long = { 1000L },
+    val tasks: FakeTaskStore = FakeTaskStore(),
 ) {
     private var ids = 0
-    val agent = XiaomanAgent(chat, operator, device, memory, skills, sentinel, users, reminders, config, clock = clock, idFactory = { "t${++ids}" })
+    val agent = XiaomanAgent(
+        chat, operator, device, memory, skills, sentinel, users, reminders, config,
+        clock = clock, idFactory = { "t${++ids}" }, tasks = tasks,
+    )
     val events = Events()
     val stop = Stop()
 }

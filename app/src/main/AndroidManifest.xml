@@ -3,6 +3,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Rebuilds the clinical-task checkpoints after a reboot; alarms alone do not survive it. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- xiaoman://alarm/set opens the clock's prefilled new-alarm page (AlarmClock.ACTION_SET_ALARM). -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -46,5 +48,20 @@
         <receiver
             android:name=".ReminderReceiver"
             android:exported="false" />
+
+        <!-- Posts the 08:00 / 11:00 / 14:00 / 17:00 clinical-task digest. -->
+        <receiver
+            android:name=".TaskDigestReceiver"
+            android:exported="false" />
+
+        <!-- Re-schedules the digest after a reboot or an app update. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

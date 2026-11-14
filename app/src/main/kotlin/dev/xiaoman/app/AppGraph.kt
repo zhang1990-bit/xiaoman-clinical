@@ -27,6 +27,7 @@ import dev.xiaoman.mcp.UserChannelApprovals
 import dev.xiaoman.memory.FileMemoryStore
 import dev.xiaoman.sentinel.PolicySentinel
 import dev.xiaoman.skills.DirectorySkillRepository
+import dev.xiaoman.tasks.FileTaskStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -36,6 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 import java.io.IOException
+import java.time.YearMonth
 
 /**
  * Manual dependency container. Everything is built lazily; [start] runs once from
@@ -58,6 +60,7 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     val tracesDir = File(externalRoot, "traces")
     val bundledSkillsDir = File(app.filesDir, "bundled-skills")
     val mcpFile = File(externalRoot, "mcp.json")
+    val tasksDir = File(externalRoot, "tasks")
 
     val settings: SettingsStore by lazy { SettingsStore.create(app) }
 
@@ -68,6 +71,11 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     val notifier by lazy { Notifier(app) }
 
     val reminderScheduler by lazy { AlarmReminderScheduler(app) }
+
+    /** Clinical tasks live in one JSON file, so a reboot never loses them; see [TaskDigestScheduler]. */
+    val taskStore by lazy { FileTaskStore(tasksDir) }
+
+    val taskScheduler by lazy { TaskDigestScheduler(app, taskStore, notifier) }
 
     /** Services ticked on the 服务 screen; keys live in the encrypted settings file. */
     val mcpSettings: McpSettingsStore by lazy { McpSettingsStore.create(app, settings.secret) }
@@ -145,25 +153,29 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
 
     private var cachedAgent: Pair<Pair<AppSettings, McpSelection>, Agent>? = null
 
-    /** The agent for the current settings, rebuilt when they change; null until both models are configured. */
+    /** The agent for the current settings, rebuilt when they change; null until the chat model is configured. */
     @Synchronized
     fun agent(): Agent? {
         val current = settings.current
         if (!current.configured) return null
         val key = current to mcpSettings.current
         cachedAgent?.let { (k, agent) -> if (k == key) return agent }
+        // DeepSeek and other text-only providers cannot read the screen, so the operator model may be
+        // left blank; phone_task is then not offered at all and the chat model's config is reused.
+        val phoneTasks = current.operator.configured
         val agent = XiaomanAgent(
             chat = llm.create(current.chat.toModelConfig(ModelRole.CHAT)),
-            operator = llm.create(current.operator.toModelConfig(ModelRole.OPERATOR)),
+            operator = llm.create((if (phoneTasks) current.operator else current.chat).toModelConfig(ModelRole.OPERATOR)),
             device = device,
             memory = memory,
             skills = skills,
             sentinel = sentinel,
             users = session,
             reminders = reminderScheduler,
-            config = current.agentConfig(),
+            config = current.agentConfig().copy(phoneTasks = phoneTasks),
             idFactory = runIds::next,
             externalTools = mcpFor(key.second),
+            tasks = taskStore,
         )
         cachedAgent = key to agent
         return agent
@@ -172,6 +184,11 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     fun start() {
         startup = scope.async(Dispatchers.IO) { prepareSkills() }
         notifier.createChannels()
+        taskScheduler.scheduleNext()
+        scope.launch(Dispatchers.IO) {
+            // "上上个月及更早" closed tasks leave the active file once a month; cheap and idempotent.
+            runCatching { taskStore.archiveBefore(YearMonth.now().minusMonths(1)) }
+        }
         OverlayController(session, accessibilityDevice, uiVisible = uiVisible).start(scope)
         scope.launch(Dispatchers.Main.immediate) {
             session.busy.collect { busy -> if (busy) AgentService.start(app) }

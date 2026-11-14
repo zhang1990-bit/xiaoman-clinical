@@ -25,18 +25,23 @@ data class ModelSettings(
         "ModelSettings(baseUrl=$baseUrl, model=$model, apiKey=${if (apiKey.isEmpty()) "<unset>" else "***"}, temperature=$temperature)"
 
     companion object {
-        /** Volcano Ark. */
-        const val DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+        /** DeepSeek by default; any OpenAI-compatible endpoint works. */
+        const val DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
+        const val DEFAULT_CHAT_MODEL = "deepseek-chat"
     }
 }
 
 data class AppSettings(
-    val chat: ModelSettings = ModelSettings(),
+    val chat: ModelSettings = ModelSettings(model = ModelSettings.DEFAULT_CHAT_MODEL),
     val operator: ModelSettings = ModelSettings(),
     val maxSteps: Int = AgentConfig().maxSteps,
     val learnFromSuccess: Boolean = AgentConfig().learnFromSuccess,
 ) {
-    val configured: Boolean get() = chat.configured && operator.configured
+    /**
+     * Only the chat model is required. DeepSeek and other text-only providers cannot read the screen,
+     * so a blank operator model simply disables `phone_task`.
+     */
+    val configured: Boolean get() = chat.configured
 
     /** Values to mask in traces and logs. */
     val secrets: List<String> get() = listOf(chat.apiKey, operator.apiKey).filter { it.isNotBlank() }
@@ -59,7 +64,7 @@ data class SettingsForm(
 ) {
     data class ModelForm(
         val baseUrl: String = ModelSettings.DEFAULT_BASE_URL,
-        val model: String = "",
+        val model: String = ModelSettings.DEFAULT_CHAT_MODEL,
         val apiKey: String = "",
         val temperature: String = "",
     ) {

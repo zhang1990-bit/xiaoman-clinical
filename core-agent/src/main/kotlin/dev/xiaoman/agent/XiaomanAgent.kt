@@ -22,6 +22,7 @@ import dev.xiaoman.api.Skill
 import dev.xiaoman.api.SkillChannel
 import dev.xiaoman.api.SkillRepository
 import dev.xiaoman.api.StopSignal
+import dev.xiaoman.api.TaskStore
 import dev.xiaoman.api.UserChannel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -49,6 +50,8 @@ class XiaomanAgent(
     private val idFactory: () -> String = { UUID.randomUUID().toString() },
     /** Extra tools such as MCP servers; their names must not shadow the built-in ones. */
     private val externalTools: ToolProvider? = null,
+    /** Clinical task store; when null the task_* tools are not offered at all. */
+    private val tasks: TaskStore? = null,
 ) : Agent {
     private val loop = OperatorLoop(operator, device, sentinel, users, config)
     private val flows = FlowRunner(loop, users)
@@ -58,9 +61,16 @@ class XiaomanAgent(
     override suspend fun handle(userMessage: String, listener: AgentListener, stop: StopSignal) {
         val taskId = idFactory()
         val emit: (AgentEvent) -> Unit = listener::onEvent
-        val tools = ChatTools(memory, skills, clock, reminders, externalTools, phoneTasks = config.phoneTasks) { goal, skill ->
-            runPhoneTask(goal, skill, listener, stop)
-        }
+        val tools = ChatTools(
+            memory = memory,
+            skills = skills,
+            clock = clock,
+            reminders = reminders,
+            external = externalTools,
+            phoneTasks = config.phoneTasks,
+            phoneTask = { goal, skill -> runPhoneTask(goal, skill, listener, stop) },
+            tasks = tasks,
+        )
         try {
             val builtIn = builtInSpecs()
             val toolSpecs = builtIn + externalSpecs()
@@ -130,8 +140,10 @@ class XiaomanAgent(
         return finish(outcome.success, outcome.summary, task.steps)
     }
 
-    private fun builtInSpecs(): List<ToolSpec> =
-        if (config.phoneTasks) AgentTools.specs else AgentTools.specs.filter { it.name != AgentTools.PHONE_TASK }
+    private fun builtInSpecs(): List<ToolSpec> = AgentTools.specs.filter { spec ->
+        (config.phoneTasks || spec.name != AgentTools.PHONE_TASK) &&
+            (tasks != null || spec.name !in TASK_TOOLS)
+    }
 
     /** External tools that do not clash with built-in names; a failing provider simply offers nothing. */
     private suspend fun externalSpecs(): List<ToolSpec> {
@@ -253,6 +265,12 @@ class XiaomanAgent(
         private const val MAX_HOWTO_NOTES = 3
         const val MAX_CHAT_SKILL_CHARS = 2000
         const val MAX_CHAT_SKILLS_CHARS = 8000
+        private val TASK_TOOLS = setOf(
+            AgentTools.TASK_ADD,
+            AgentTools.TASK_LIST,
+            AgentTools.TASK_DONE,
+            AgentTools.TASK_UPDATE,
+        )
 
         fun howtoPermalink(key: String) = "howto/$key"
     }
