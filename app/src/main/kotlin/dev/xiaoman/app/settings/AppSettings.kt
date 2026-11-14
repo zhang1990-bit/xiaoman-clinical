@@ -27,7 +27,7 @@ data class ModelSettings(
     companion object {
         /** DeepSeek by default; any OpenAI-compatible endpoint works. */
         const val DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
-        const val DEFAULT_CHAT_MODEL = "deepseek-chat"
+        const val DEFAULT_CHAT_MODEL = "deepseek-v4.1-flash"
     }
 }
 

@@ -32,7 +32,7 @@ class SettingsTest {
     @Test fun `defaults point at DeepSeek and are not configured until a key is entered`() {
         val s = store().current
         assertEquals("https://api.deepseek.com/v1", s.chat.baseUrl)
-        assertEquals("deepseek-chat", s.chat.model)
+        assertEquals("deepseek-v4.1-flash", s.chat.model)
         assertFalse(s.configured)
     }
 
