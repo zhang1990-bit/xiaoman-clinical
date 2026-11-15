@@ -7,8 +7,11 @@ import dev.xiaoman.api.CareTask
 import dev.xiaoman.api.MemoryStore
 import dev.xiaoman.api.Note
 import dev.xiaoman.api.Observation
+import dev.xiaoman.api.PatientRoster
+import dev.xiaoman.api.PatientSlot
 import dev.xiaoman.api.Relation
 import dev.xiaoman.api.ReminderScheduler
+import dev.xiaoman.api.RosterStore
 import dev.xiaoman.api.Skill
 import dev.xiaoman.api.SkillRepository
 import dev.xiaoman.api.TaskAnchor
@@ -52,6 +55,8 @@ internal class ChatTools(
     private val phoneTask: suspend (goal: String, skill: String?) -> AgentEvent.PhoneTaskFinished,
     /** Clinical tasks; the tools are only offered when the app injects a store. */
     private val tasks: TaskStore? = null,
+    /** Today's ward table, saved from the HIS photo; null disables the 新入/出院 diff but not the check. */
+    private val roster: RosterStore? = null,
 ) {
     suspend fun execute(call: ToolCall, taskId: String, emit: (AgentEvent) -> Unit): String = try {
         val args = parseArgs(call.argumentsJson)
@@ -327,44 +332,82 @@ internal class ChatTools(
     }
 
     /**
-     * Reconciles the tasks with the bed/name table the model read off a photo of the HIS screen.
+     * Reads the bed/name table the model pulled off a photo of the HIS screen.
+     *
+     * With [beds][readSlots] it becomes today's saved roster, reports 新入 / 出院 / 调床 against the
+     * previous one and reconciles the open tasks. Without them it just answers from the saved roster
+     * ("12 床是谁" / "现在管几个").
      *
      * Only a bed move of the same person is applied ([apply]); a bed that now holds another name and
-     * a name that is on the roster twice are reported so the user decides, never guessed.
+     * a name that appears twice are reported so the user decides, never guessed.
      */
     private suspend fun taskRoster(args: JsonObject): String {
         val store = tasks ?: return error("待办功能没有启用")
-        val roster = readSlots(args["beds"])
-        if (roster.isEmpty()) throw ToolArgumentException("beds 为空，没有读到床号和姓名")
-        val apply = (args["apply"] as? JsonPrimitive)?.let { it.booleanOrNull ?: (it.content == "是") } == true
         val today = today()
+        val read = readSlots(args["beds"])
+        if (read.isEmpty()) return savedRosterAnswer(store, today)
+
+        val previous = roster?.all().orEmpty()
+        val slots = PatientRoster.normalize(read.map { PatientSlot(it.bed, it.name, today.toString()) }, today.toString())
+        val diff = PatientRoster.diff(previous, slots)
+        roster?.replace(slots)
+
+        val apply = (args["apply"] as? JsonPrimitive)?.let { it.booleanOrNull ?: (it.content == "是") } == true
         val all = store.all()
-        val report = TaskRoster.compare(all, roster)
-        if (report.checked == 0) return error("现在没有未办的待办，不用核对")
+        val report = TaskRoster.compare(all, slots.map { BedSlot(it.bed, it.name) })
         if (apply && report.moves.isNotEmpty()) {
             val byId = all.associateBy { it.id }
             store.updateAll(report.moves.flatMap { move -> move.ids.mapNotNull { byId[it]?.copy(bed = move.toBed) } })
         }
         return buildJsonObject {
             put("ok", true)
-            put("bedsRead", roster.size)
-            put("checked", report.checked)
-            put("applied", apply)
-            put("moves", report.moves.size)
-            put("conflicts", report.conflicts.size)
-            put("missing", report.missing.size)
+            put("saved", slots.size)
+            put("added", diff.added.size)
+            put("discharged", diff.removed.size)
+            put("movedBeds", diff.moved.size)
+            put("checkedTasks", report.checked)
             putJsonArray("detail") {
+                diff.added.forEach { add("新入｜${it.bed}床 ${it.name}") }
+                diff.removed.forEach { add("出院或转出｜${it.bed}床 ${it.name}") }
+                diff.moved.forEach { add("调床｜${it.name} ${it.fromBed}床 → ${it.toBed}床") }
                 report.moves.forEach { move ->
-                    add("${move.fromBed}床 ${move.name} → ${move.toBed}床｜${move.items.joinToString("、")}｜" + if (apply) "已改床" else "待改床")
+                    add("待办跟床｜${move.fromBed}床 ${move.name} → ${move.toBed}床｜${move.items.joinToString("、")}｜" + if (apply) "已改" else "待改")
                 }
                 report.conflicts.forEach { c ->
-                    add("${c.bed}床｜待办记的是 ${c.taskName}｜HIS 是 ${c.hisName}｜${c.reason}｜${c.item}｜未改，需要问用户")
+                    add("同床不同姓｜${c.bed}床｜待办记的是 ${c.taskName}，HIS 是 ${c.hisName}｜${c.item}｜未改，要问用户")
                 }
                 report.missing.forEach { m ->
-                    add("${m.bed}床 ${m.name}｜${m.items.joinToString("、")}｜HIS 表里没有这个人｜未改，问是否已出院或转走")
+                    add("待办里有人不在名单｜${m.bed}床 ${m.name}｜${m.items.joinToString("、")}｜未改，问是否已出院")
                 }
             }
-            if (report.clear) put("summary", "床号和姓名全部对得上，没有要改的")
+            // A half-read table must not silently look like "everyone was discharged".
+            if (previous.size >= 4 && slots.size * 2 < previous.size) {
+                put("warning", "这次只读到 ${slots.size} 人，上一次 ${previous.size} 人，图可能没拍全（新入/出院数不可信，请重拍）")
+            }
+            if (report.clear && diff.empty) put("summary", "名单没变化，待办床号全部对得上")
+        }.toString()
+    }
+
+    /** Answers from the saved roster alone; no photo, no reconciliation. */
+    private suspend fun savedRosterAnswer(store: TaskStore, today: LocalDate): String {
+        val saved = roster?.all().orEmpty()
+        if (saved.isEmpty()) throw ToolArgumentException("还没有名单，也没有读到床号和姓名；先说一句或发一张 HIS 名单")
+        val open = store.all().filter { it.state != TaskState.DONE }
+        return buildJsonObject {
+            put("ok", true)
+            put("count", saved.size)
+            put("savedAt", saved.map { it.seenAt }.maxOrNull())
+            putJsonArray("patients") { saved.forEach { add("${it.bed}床 ${it.name}") } }
+            putJsonArray("withTasks") {
+                saved.forEach { slot ->
+                    val mine = open.filter { it.bed == slot.bed }
+                    if (mine.isNotEmpty()) add("${slot.bed}床 ${slot.name}｜" + mine.joinToString("；") { taskLine(it, today) })
+                }
+            }
+            putJsonArray("withoutBed") {
+                open.filter { task -> saved.none { it.bed == task.bed } }
+                    .forEach { add("${it.bed}床 ${it.name}｜${it.item}｜名单里没有这个床位") }
+            }
         }.toString()
     }
 

@@ -21,6 +21,8 @@ import dev.xiaoman.api.ModelRole
 import dev.xiaoman.api.Note
 import dev.xiaoman.api.TaskStore
 import dev.xiaoman.api.Observation
+import dev.xiaoman.api.PatientSlot
+import dev.xiaoman.api.RosterStore
 import dev.xiaoman.api.ReminderScheduler
 import dev.xiaoman.api.ScreenState
 import dev.xiaoman.api.SearchHit
@@ -178,6 +180,18 @@ class FakeTaskStore : TaskStore {
     override suspend fun find(id: String): CareTask? = items.firstOrNull { it.id == id }
 }
 
+/** In-memory ward table, replaced whole on every sync. */
+class FakeRosterStore : RosterStore {
+    val items = mutableListOf<PatientSlot>()
+
+    override suspend fun all(): List<PatientSlot> = items.toList()
+
+    override suspend fun replace(slots: List<PatientSlot>) {
+        items.clear()
+        items += slots
+    }
+}
+
 /** Wires a [XiaomanAgent] with fakes; tests tweak the parts they care about. */
 class Harness(
     val chat: ScriptedLlm = ScriptedLlm(ModelRole.CHAT),
@@ -191,11 +205,12 @@ class Harness(
     val config: AgentConfig = AgentConfig(),
     val clock: () -> Long = { 1000L },
     val tasks: FakeTaskStore = FakeTaskStore(),
+    val roster: FakeRosterStore = FakeRosterStore(),
 ) {
     private var ids = 0
     val agent = XiaomanAgent(
         chat, operator, device, memory, skills, sentinel, users, reminders, config,
-        clock = clock, idFactory = { "t${++ids}" }, tasks = tasks,
+        clock = clock, idFactory = { "t${++ids}" }, tasks = tasks, roster = roster,
     )
     val events = Events()
     val stop = Stop()

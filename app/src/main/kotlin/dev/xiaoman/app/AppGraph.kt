@@ -30,6 +30,7 @@ import dev.xiaoman.mcp.UserChannelApprovals
 import dev.xiaoman.memory.FileMemoryStore
 import dev.xiaoman.sentinel.PolicySentinel
 import dev.xiaoman.skills.DirectorySkillRepository
+import dev.xiaoman.tasks.FileRosterStore
 import dev.xiaoman.tasks.FileTaskStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -77,6 +78,9 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
 
     /** Clinical tasks live in one JSON file, so a reboot never loses them; see [TaskDigestScheduler]. */
     val taskStore by lazy { FileTaskStore(tasksDir) }
+
+    /** Today's ward table from the HIS photo, in the same folder as the tasks. */
+    val rosterStore by lazy { FileRosterStore(tasksDir) }
 
     val taskScheduler by lazy { TaskDigestScheduler(app, taskStore, notifier) }
 
@@ -190,6 +194,7 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
             idFactory = runIds::next,
             externalTools = mcpFor(key.second),
             tasks = taskStore,
+            roster = rosterStore,
         )
         cachedAgent = key to agent
         return agent

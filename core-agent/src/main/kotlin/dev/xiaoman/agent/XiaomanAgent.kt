@@ -17,6 +17,7 @@ import dev.xiaoman.api.MemoryStore
 import dev.xiaoman.api.Note
 import dev.xiaoman.api.Observation
 import dev.xiaoman.api.ReminderScheduler
+import dev.xiaoman.api.RosterStore
 import dev.xiaoman.api.Sentinel
 import dev.xiaoman.api.Skill
 import dev.xiaoman.api.SkillChannel
@@ -52,6 +53,8 @@ class XiaomanAgent(
     private val externalTools: ToolProvider? = null,
     /** Clinical task store; when null the task_* tools are not offered at all. */
     private val tasks: TaskStore? = null,
+    /** Today's ward table saved from the HIS photo; optional, only used by task_roster. */
+    private val roster: RosterStore? = null,
 ) : Agent {
     private val loop = OperatorLoop(operator, device, sentinel, users, config)
     private val flows = FlowRunner(loop, users)
@@ -86,6 +89,7 @@ class XiaomanAgent(
             phoneTasks = config.phoneTasks,
             phoneTask = { goal, skill -> runPhoneTask(goal, skill, listener, stop) },
             tasks = tasks,
+            roster = roster,
         )
         try {
             val builtIn = builtInSpecs()
