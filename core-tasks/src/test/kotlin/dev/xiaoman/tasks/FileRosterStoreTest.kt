@@ -18,19 +18,19 @@ class FileRosterStoreTest {
         val dir = tempDir()
         val store = FileRosterStore(dir)
 
-        store.replace(listOf(slot("2", "李西萍"), slot("A63", "张殿坡")))
+        store.replace(listOf(slot("2", "李xx"), slot("A63", "张xx")))
 
         val reloaded = FileRosterStore(dir).all()
-        assertEquals(listOf("2" to "李西萍", "A63" to "张殿坡"), reloaded.map { it.bed to it.name })
+        assertEquals(listOf("2" to "李xx", "A63" to "张xx"), reloaded.map { it.bed to it.name })
         assertTrue(File(dir, "roster.json").isFile)
     }
 
     @Test
     fun replacingOverwritesInsteadOfAppending() = runBlocking {
         val store = FileRosterStore(tempDir())
-        store.replace(listOf(slot("2", "李西萍"), slot("3", "倪成英")))
-        store.replace(listOf(slot("19", "马凤")))
-        assertEquals(listOf("马凤"), store.all().map { it.name })
+        store.replace(listOf(slot("2", "李xx"), slot("3", "王xx")))
+        store.replace(listOf(slot("19", "马xx")))
+        assertEquals(listOf("马xx"), store.all().map { it.name })
     }
 
     @Test

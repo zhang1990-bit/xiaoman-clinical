@@ -10,7 +10,7 @@ class PatientRosterTest {
     @Test
     fun normalizesBedsSortsAndDropsEmptyRows() {
         val roster = PatientRoster.normalize(
-            listOf(slot("02", "李西萍"), slot("A63", "张殿坡"), slot("19", "马凤"), slot("", "无名"), slot("11", " ")),
+            listOf(slot("02", "李xx"), slot("A63", "张xx"), slot("19", "马xx"), slot("", "无名"), slot("11", " ")),
             "2026-11-15",
         )
         assertEquals(listOf("2", "19", "A63"), roster.map { it.bed })
@@ -20,11 +20,11 @@ class PatientRosterTest {
     @Test
     fun secondDayDiffReportsNewDischargedAndMoved() {
         val yesterday = listOf(slot("12", "李xx"), slot("5", "王xx"), slot("9", "赵xx"))
-        val today = listOf(slot("15", "李xx"), slot("5", "王xx"), slot("19", "马凤"))
+        val today = listOf(slot("15", "李xx"), slot("5", "王xx"), slot("19", "马xx"))
 
         val diff = PatientRoster.diff(yesterday, today)
 
-        assertEquals(listOf("马凤"), diff.added.map { it.name })
+        assertEquals(listOf("马xx"), diff.added.map { it.name })
         assertEquals(listOf("赵xx"), diff.removed.map { it.name })
         assertEquals(1, diff.moved.size)
         assertEquals("12" to "15", diff.moved.single().fromBed to diff.moved.single().toBed)
@@ -40,7 +40,7 @@ class PatientRosterTest {
 
     @Test
     fun firstPhotoEverIsAllNew() {
-        val diff = PatientRoster.diff(emptyList(), listOf(slot("2", "李西萍"), slot("3", "倪成英")))
+        val diff = PatientRoster.diff(emptyList(), listOf(slot("2", "李xx"), slot("3", "王xx")))
         assertEquals(2, diff.added.size)
         assertTrue(diff.removed.isEmpty() && diff.moved.isEmpty())
         assertEquals(0, diff.unchanged)

@@ -52,15 +52,15 @@ class RosterToolTest {
     fun secondDayReportsNewDischargedAndMoved() = runTest {
         val h = Harness()
         h.roster.items += listOf(PatientSlot("12", "李xx", "2026-11-14"), PatientSlot("5", "王xx", "2026-11-14"))
-        h.chat.tools(sync("""[{"bed":"15","name":"李xx"},{"bed":"19","name":"马凤"}]""")).reply("收到")
+        h.chat.tools(sync("""[{"bed":"15","name":"李xx"},{"bed":"19","name":"马xx"}]""")).reply("收到")
 
         h.agent.handle("今天的名单", h.events, h.stop)
 
         val tool = h.chat.requests[1].messages.last().text
-        assertTrue("新入｜19床 马凤" in tool, tool)
+        assertTrue("新入｜19床 马xx" in tool, tool)
         assertTrue("出院或转出｜5床 王xx" in tool, tool)
         assertTrue("调床｜李xx 12床 → 15床" in tool, tool)
-        assertEquals(listOf("李xx", "马凤"), h.roster.items.map { it.name })
+        assertEquals(listOf("李xx", "马xx"), h.roster.items.map { it.name })
     }
 
     @Test
@@ -79,15 +79,15 @@ class RosterToolTest {
     @Test
     fun askingWithoutAPhotoAnswersFromTheSavedRoster() = runTest {
         val h = Harness()
-        h.roster.items += listOf(PatientSlot("2", "李西萍", "2026-11-15"), PatientSlot("19", "马凤", "2026-11-15"))
-        h.tasks.items += task(bed = "2", name = "李西萍", item = "术前检查")
-        h.chat.tools(ToolCall("c1", AgentTools.TASK_ROSTER, """{}""")).reply("2 床李西萍，术前检查")
+        h.roster.items += listOf(PatientSlot("2", "李xx", "2026-11-15"), PatientSlot("19", "马xx", "2026-11-15"))
+        h.tasks.items += task(bed = "2", name = "李xx", item = "术前检查")
+        h.chat.tools(ToolCall("c1", AgentTools.TASK_ROSTER, """{}""")).reply("2 床李xx，术前检查")
 
         h.agent.handle("12 床是谁", h.events, h.stop)
 
         val tool = h.chat.requests[1].messages.last().text
         assertTrue("\"count\":2" in tool, tool)
-        assertTrue("2床 李西萍" in tool, tool)
+        assertTrue("2床 李xx" in tool, tool)
         assertTrue("withTasks" in tool, tool)
     }
 
