@@ -22,6 +22,7 @@ import dev.xiaoman.api.Note
 import dev.xiaoman.api.TaskStore
 import dev.xiaoman.api.Observation
 import dev.xiaoman.api.PatientSlot
+import dev.xiaoman.api.RecordStore
 import dev.xiaoman.api.RosterStore
 import dev.xiaoman.api.ReminderScheduler
 import dev.xiaoman.api.ScreenState
@@ -192,6 +193,24 @@ class FakeRosterStore : RosterStore {
     }
 }
 
+/** In-memory record store: keeps generated text and a couple of templates. */
+class FakeRecordStore : RecordStore {
+    val files = LinkedHashMap<String, String>()
+    val templateFiles = LinkedHashMap<String, String>()
+
+    override suspend fun save(title: String, content: String): String {
+        val path = "/fake/records/$title.txt"
+        files[path] = content
+        return path
+    }
+
+    override suspend fun list(): List<String> = files.keys.toList()
+
+    override suspend fun templates(): List<String> = templateFiles.keys.toList()
+
+    override suspend fun template(name: String): String? = templateFiles[name]
+}
+
 /** Wires a [XiaomanAgent] with fakes; tests tweak the parts they care about. */
 class Harness(
     val chat: ScriptedLlm = ScriptedLlm(ModelRole.CHAT),
@@ -206,11 +225,12 @@ class Harness(
     val clock: () -> Long = { 1000L },
     val tasks: FakeTaskStore = FakeTaskStore(),
     val roster: FakeRosterStore = FakeRosterStore(),
+    val records: FakeRecordStore = FakeRecordStore(),
 ) {
     private var ids = 0
     val agent = XiaomanAgent(
         chat, operator, device, memory, skills, sentinel, users, reminders, config,
-        clock = clock, idFactory = { "t${++ids}" }, tasks = tasks, roster = roster,
+        clock = clock, idFactory = { "t${++ids}" }, tasks = tasks, roster = roster, records = records,
     )
     val events = Events()
     val stop = Stop()

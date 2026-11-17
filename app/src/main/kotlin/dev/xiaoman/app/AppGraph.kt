@@ -30,6 +30,7 @@ import dev.xiaoman.mcp.UserChannelApprovals
 import dev.xiaoman.memory.FileMemoryStore
 import dev.xiaoman.sentinel.PolicySentinel
 import dev.xiaoman.skills.DirectorySkillRepository
+import dev.xiaoman.tasks.FileRecordStore
 import dev.xiaoman.tasks.FileRosterStore
 import dev.xiaoman.tasks.FileTaskStore
 import kotlinx.coroutines.CoroutineScope
@@ -81,6 +82,11 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
 
     /** Today's ward table from the HIS photo, in the same folder as the tasks. */
     val rosterStore by lazy { FileRosterStore(tasksDir) }
+
+    /** Generated surgical records and the user's own templates. */
+    val recordsDir = File(externalRoot, "records")
+    val templatesDir = File(externalRoot, "surgical-templates")
+    val recordStore by lazy { FileRecordStore(recordsDir, templatesDir) }
 
     val taskScheduler by lazy { TaskDigestScheduler(app, taskStore, notifier) }
 
@@ -195,6 +201,7 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
             externalTools = mcpFor(key.second),
             tasks = taskStore,
             roster = rosterStore,
+            records = recordStore,
         )
         cachedAgent = key to agent
         return agent

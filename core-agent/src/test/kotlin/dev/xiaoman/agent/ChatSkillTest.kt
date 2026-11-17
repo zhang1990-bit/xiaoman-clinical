@@ -52,7 +52,7 @@ class ChatSkillTest {
 
     @Test
     fun workflowBodiesHavePerSkillAndTotalLimits() = runTest {
-        val skills = (0..4).map { workflow("plan-$it", "◆".repeat(2100) + "正文尾部") }
+        val skills = (0..4).map { workflow("plan-$it", "◆".repeat(5100) + "正文尾部") }
         val h = Harness(skills = FakeSkills(*skills.toTypedArray()))
         h.chat.reply("好")
         h.agent.handle("开工", h.events, h.stop)

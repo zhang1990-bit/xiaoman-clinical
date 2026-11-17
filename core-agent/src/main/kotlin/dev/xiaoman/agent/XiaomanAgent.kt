@@ -17,6 +17,7 @@ import dev.xiaoman.api.MemoryStore
 import dev.xiaoman.api.Note
 import dev.xiaoman.api.Observation
 import dev.xiaoman.api.ReminderScheduler
+import dev.xiaoman.api.RecordStore
 import dev.xiaoman.api.RosterStore
 import dev.xiaoman.api.Sentinel
 import dev.xiaoman.api.Skill
@@ -55,6 +56,8 @@ class XiaomanAgent(
     private val tasks: TaskStore? = null,
     /** Today's ward table saved from the HIS photo; optional, only used by task_roster. */
     private val roster: RosterStore? = null,
+    /** Generated TXT documents and templates; null hides record_save / template_read. */
+    private val records: RecordStore? = null,
 ) : Agent {
     private val loop = OperatorLoop(operator, device, sentinel, users, config)
     private val flows = FlowRunner(loop, users)
@@ -90,6 +93,7 @@ class XiaomanAgent(
             phoneTask = { goal, skill -> runPhoneTask(goal, skill, listener, stop) },
             tasks = tasks,
             roster = roster,
+            records = records,
         )
         try {
             val builtIn = builtInSpecs()
@@ -164,7 +168,8 @@ class XiaomanAgent(
 
     private fun builtInSpecs(): List<ToolSpec> = AgentTools.specs.filter { spec ->
         (config.phoneTasks || spec.name != AgentTools.PHONE_TASK) &&
-            (tasks != null || spec.name !in TASK_TOOLS)
+            (tasks != null || spec.name !in TASK_TOOLS) &&
+            (records != null || spec.name !in RECORD_TOOLS)
     }
 
     /** External tools that do not clash with built-in names; a failing provider simply offers nothing. */
@@ -285,7 +290,7 @@ class XiaomanAgent(
         const val HOWTO_TYPE = "howto"
         const val PATH_CATEGORY = "path"
         private const val MAX_HOWTO_NOTES = 3
-        const val MAX_CHAT_SKILL_CHARS = 2000
+        const val MAX_CHAT_SKILL_CHARS = 5000
         const val MAX_CHAT_SKILLS_CHARS = 8000
         private val TASK_TOOLS = setOf(
             AgentTools.TASK_ADD,
@@ -294,6 +299,8 @@ class XiaomanAgent(
             AgentTools.TASK_UPDATE,
             AgentTools.TASK_ROSTER,
         )
+
+        private val RECORD_TOOLS = setOf(AgentTools.RECORD_SAVE, AgentTools.TEMPLATE_READ)
 
         fun howtoPermalink(key: String) = "howto/$key"
     }

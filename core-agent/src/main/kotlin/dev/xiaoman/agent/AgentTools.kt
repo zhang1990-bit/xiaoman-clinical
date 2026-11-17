@@ -22,6 +22,8 @@ object AgentTools {
     const val TASK_DONE = "task_done"
     const val TASK_UPDATE = "task_update"
     const val TASK_ROSTER = "task_roster"
+    const val RECORD_SAVE = "record_save"
+    const val TEMPLATE_READ = "template_read"
 
     val specs: List<ToolSpec> = listOf(
         ToolSpec(
@@ -155,6 +157,26 @@ object AgentTools {
                     ),
                 ),
                 "apply" to bool("true 表示把能确定的调床直接改掉，默认 false 只报告"),
+            ),
+        ),
+        ToolSpec(
+            RECORD_SAVE,
+            "把已经定稿的手术记录正文写成 TXT 存到手机上。"
+                + "必须等用户明确说「出 / 保存 / 可以」之后才调用；用户还在看稿、还在改的时候，"
+                + "把正文直接贴在聊天里给他看，不要落文件。存完把路径告诉用户，不要再把全文贴一遍。",
+            schema(
+                listOf("title", "content"),
+                "title" to str("文件名主体，如 20261118_开腹肝癌切除；不要带 .txt"),
+                "content" to str("手术记录正文，段落之间用一个空行分隔"),
+            ),
+        ),
+        ToolSpec(
+            TEMPLATE_READ,
+            "查手机里的手术记录模板。不传 name 时返回有哪些模板；传 name 时返回该模板全文。"
+                + "写记录之前先查一次，看有没有这个术式的骨架可以套。",
+            schema(
+                emptyList(),
+                "name" to str("模板名，如 解剖性肝切除；留空表示列出全部"),
             ),
         ),
     )

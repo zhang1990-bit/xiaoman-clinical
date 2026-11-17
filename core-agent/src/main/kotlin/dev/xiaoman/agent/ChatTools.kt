@@ -9,6 +9,7 @@ import dev.xiaoman.api.Note
 import dev.xiaoman.api.Observation
 import dev.xiaoman.api.PatientRoster
 import dev.xiaoman.api.PatientSlot
+import dev.xiaoman.api.RecordStore
 import dev.xiaoman.api.Relation
 import dev.xiaoman.api.ReminderScheduler
 import dev.xiaoman.api.RosterStore
@@ -57,6 +58,8 @@ internal class ChatTools(
     private val tasks: TaskStore? = null,
     /** Today's ward table, saved from the HIS photo; null disables the 新入/出院 diff but not the check. */
     private val roster: RosterStore? = null,
+    /** Generated records and the user's templates; null hides record_save / template_read. */
+    private val records: RecordStore? = null,
 ) {
     suspend fun execute(call: ToolCall, taskId: String, emit: (AgentEvent) -> Unit): String = try {
         val args = parseArgs(call.argumentsJson)
@@ -72,6 +75,8 @@ internal class ChatTools(
             AgentTools.TASK_DONE -> taskDone(args)
             AgentTools.TASK_UPDATE -> taskUpdate(args)
             AgentTools.TASK_ROSTER -> taskRoster(args)
+            AgentTools.RECORD_SAVE -> recordSave(args)
+            AgentTools.TEMPLATE_READ -> templateRead(args)
             AgentTools.PHONE_TASK -> if (phoneTasks) phone(args) else error("这里不能操作手机，请用其他工具或告诉用户自己操作")
             else -> external(call, taskId, emit)
         }
@@ -408,6 +413,45 @@ internal class ChatTools(
                 open.filter { task -> saved.none { it.bed == task.bed } }
                     .forEach { add("${it.bed}床 ${it.name}｜${it.item}｜名单里没有这个床位") }
             }
+        }.toString()
+    }
+
+    /**
+     * Writes the confirmed record to a `.txt` on the phone. The "ask first, save later" rule lives in
+     * the tool description and the skill; here we only refuse empty input.
+     */
+    private suspend fun recordSave(args: JsonObject): String {
+        val store = records ?: return error("保存功能没有启用")
+        val title = JsonText.string(args, "title")?.trim().orEmpty()
+        val content = JsonText.string(args, "content")?.trim().orEmpty()
+        if (title.isEmpty()) throw ToolArgumentException("缺少 title")
+        if (content.length < 20) throw ToolArgumentException("content 太短，先把记录正文写全")
+        val path = store.save(title, content)
+        return buildJsonObject {
+            put("ok", true)
+            put("path", path)
+            put("chars", content.length)
+            put("hint", "告诉用户文件路径即可，不要再重复贴全文")
+        }.toString()
+    }
+
+    private suspend fun templateRead(args: JsonObject): String {
+        val store = records ?: return error("模板功能没有启用")
+        val name = JsonText.string(args, "name")?.trim().orEmpty()
+        if (name.isEmpty()) {
+            val all = store.templates()
+            return buildJsonObject {
+                put("ok", true)
+                put("count", all.size)
+                putJsonArray("templates") { all.forEach { add(it) } }
+                if (all.isEmpty()) put("hint", "模板文件夹是空的，直接按规范写，并告诉用户可以放模板进去")
+            }.toString()
+        }
+        val text = store.template(name) ?: return error("没有找到模板：$name，先不传 name 列一次清单")
+        return buildJsonObject {
+            put("ok", true)
+            put("name", name)
+            put("content", text)
         }.toString()
     }
 
