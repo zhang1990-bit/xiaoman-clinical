@@ -54,6 +54,20 @@ class RecordToolTest {
     }
 
     @Test
+    fun templateIsSavedThroughTheTool() = runTest {
+        val h = Harness()
+        val content = "## 步骤\\n1. Pringle 阻断\\n2. 缺血线标定\\n3. 离断肝实质"
+        h.chat.tools(
+            ToolCall("c1", AgentTools.TEMPLATE_SAVE, """{"name":"解剖性肝切除","content":"$content","aliases":"肝段切除,肝切除"}"""),
+        ).reply("存好了")
+
+        h.agent.handle("把这个模板存起来", h.events, h.stop)
+
+        assertTrue("/fake/templates/解剖性肝切除.md" in h.chat.requests[1].messages.last().text)
+        assertTrue(h.records.templateFiles["解剖性肝切除"]!!.contains("Pringle"))
+    }
+
+    @Test
     fun unknownTemplateIsAnErrorNotSilence() = runTest {
         val h = Harness()
         h.chat.tools(ToolCall("c1", AgentTools.TEMPLATE_READ, """{"name":"不存在的"}""")).reply("没有这个模板")

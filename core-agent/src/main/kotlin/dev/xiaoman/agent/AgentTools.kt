@@ -24,13 +24,21 @@ object AgentTools {
     const val TASK_ROSTER = "task_roster"
     const val RECORD_SAVE = "record_save"
     const val TEMPLATE_READ = "template_read"
+    const val TEMPLATE_SAVE = "template_save"
     const val RECORD_LIST = "record_list"
     const val RECORD_READ = "record_read"
 
     val specs: List<ToolSpec> = listOf(
         ToolSpec(
-            MEMORY_SEARCH, "在用户的记忆笔记中全文搜索（支持中文）。",
-            schema(listOf("query"), "query" to str("搜索词"), "limit" to int("最多返回条数，默认 5")),
+            MEMORY_SEARCH,
+            "在用户的记忆笔记中全文搜索（支持中文）。默认只返回仍在有效期内的条目；"
+                + "过期条目不注入提示词，需要翻旧账时才传 includeExpired。",
+            schema(
+                listOf("query"),
+                "query" to str("搜索词"),
+                "limit" to int("最多返回条数，默认 5"),
+                "includeExpired" to str("填 true 时连过期条目一起返回，默认 false"),
+            ),
         ),
         ToolSpec(
             MEMORY_READ, "读取一条记忆笔记的全文。",
@@ -44,6 +52,11 @@ object AgentTools {
                 "title" to str("笔记标题，如 家"),
                 "permalink" to str("可选，路径形式的唯一键，如 places/家；默认用标题"),
                 "type" to str("可选，笔记类型，如 place、person、preference；默认 note"),
+                "kind" to str(
+                    "记忆层级：patient（患者相关，默认 30 天后自动失效）/ preference（个人偏好，永久）/ "
+                        + "howto（操作经验，永久）/ template（模板，永久）。患者信息一律用 patient。",
+                ),
+                "keepDays" to int("可选，多少天后不再注入提示词；0 表示永久。不填时按 kind 取默认（patient=30，其余永久）"),
                 "observations" to arr(
                     "观察条目",
                     schema(
@@ -170,6 +183,18 @@ object AgentTools {
                 listOf("title", "content"),
                 "title" to str("文件名主体，如 20261118_开腹肝癌切除；不要带 .txt"),
                 "content" to str("手术记录正文，段落之间用一个空行分隔"),
+            ),
+        ),
+        ToolSpec(
+            TEMPLATE_SAVE,
+            "把用户给的术式模板存进模板库（或更新已有模板）。"
+                + "用户发模板时，先整理成「术式名 → 常规步骤 + 常用句式」的 markdown，再调用本工具。"
+                + "同名模板再存会自动升版本，旧版留 .bak。别名（LC、胆囊切除）一并存进去，下次按任一叫法都能命中。",
+            schema(
+                listOf("name", "content"),
+                "name" to str("术式名，如 解剖性肝切除；就是文件名"),
+                "content" to str("模板正文（markdown），不要带 frontmatter，工具会自己加"),
+                "aliases" to str("可选，别名，逗号分隔，如 LC,胆囊切除,腹腔镜胆囊切除术"),
             ),
         ),
         ToolSpec(

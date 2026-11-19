@@ -42,7 +42,28 @@ data class Observation(val category: String, val content: String, val tags: List
 
 data class Relation(val type: String, val target: String, val context: String? = null)
 
-data class SearchHit(val permalink: String, val title: String, val snippet: String, val score: Double)
+data class SearchHit(
+    val permalink: String,
+    val title: String,
+    val snippet: String,
+    val score: Double,
+    /** `patient` / `preference` / `howto` ...; empty when the note carries none. */
+    val kind: String = "",
+    /** yyyy-MM-dd after which this note must not be injected; null means it never expires. */
+    val validUntil: String? = null,
+) {
+    /** Expired notes stay on disk (they are the patient's history) but stop occupying the prompt. */
+    fun expired(today: java.time.LocalDate): Boolean =
+        validUntil?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull()?.isBefore(today) } ?: false
+}
+
+/** Frontmatter keys the clinical layer writes; unknown to Basic Memory itself, kept on rewrite. */
+const val KIND_KEY = "kind"
+const val VALID_UNTIL_KEY = "valid_until"
+
+fun Note.kindOf(): String = (extraFrontmatter[KIND_KEY] as? String).orEmpty()
+
+fun Note.validUntilOf(): String? = (extraFrontmatter[VALID_UNTIL_KEY] as? String)?.takeIf { it.isNotBlank() }
 
 interface MemoryStore {
     /** Creates or replaces the note at [Note.permalink]; returns the stored note. */

@@ -19,6 +19,12 @@ interface RecordStore {
     /** Template names the user dropped into the template folder. */
     suspend fun templates(): List<String>
 
-    /** Full text of one template, or null when it does not exist. */
+    /** Full text of one template, or null when it does not exist. Aliases are honoured. */
     suspend fun template(name: String): String?
+
+    /**
+     * 写入/更新一份术式模板：`<name>.md`，带 `aliases` / `version` / `updated` 头。
+     * 已存在时版本号 +1，并把上一版另存为 `<name>.bak`（不进模板列表）。返回文件绝对路径。
+     */
+    suspend fun saveTemplate(name: String, content: String, aliases: List<String>): String
 }

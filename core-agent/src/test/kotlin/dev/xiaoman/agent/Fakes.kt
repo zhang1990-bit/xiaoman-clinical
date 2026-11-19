@@ -27,6 +27,8 @@ import dev.xiaoman.api.RosterStore
 import dev.xiaoman.api.ReminderScheduler
 import dev.xiaoman.api.ScreenState
 import dev.xiaoman.api.SearchHit
+import dev.xiaoman.api.kindOf
+import dev.xiaoman.api.validUntilOf
 import dev.xiaoman.api.Sentinel
 import dev.xiaoman.api.Skill
 import dev.xiaoman.api.SkillLoadResult
@@ -97,7 +99,12 @@ class InMemoryMemory : MemoryStore {
         return notes.values.mapNotNull { n ->
             val text = n.title + "\n" + n.body + n.observations.joinToString("\n") { it.content }
             val score = grams.count { it in text }
-            if (score > 0) SearchHit(n.permalink, n.title, n.observations.firstOrNull()?.content ?: n.body.take(40), score.toDouble()) else null
+            if (score > 0) {
+                SearchHit(
+                    n.permalink, n.title, n.observations.firstOrNull()?.content ?: n.body.take(40), score.toDouble(),
+                    n.kindOf(), n.validUntilOf(),
+                )
+            } else null
         }.sortedByDescending { it.score }.take(limit)
     }
 
@@ -217,6 +224,11 @@ class FakeRecordStore : RecordStore {
     override suspend fun templates(): List<String> = templateFiles.keys.toList()
 
     override suspend fun template(name: String): String? = templateFiles[name]
+
+    override suspend fun saveTemplate(name: String, content: String, aliases: List<String>): String {
+        templateFiles[name] = content
+        return "/fake/templates/$name.md"
+    }
 }
 
 /** Wires a [XiaomanAgent] with fakes; tests tweak the parts they care about. */

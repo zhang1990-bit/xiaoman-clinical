@@ -220,10 +220,15 @@ class XiaomanAgent(
         if (generated.isNotEmpty()) {
             append("\n\n").append(Prompts.recordsSection(generated.take(MAX_RECORDS_IN_PROMPT)))
         }
-        val hits = quietly(emptyList()) { memory.search(userMessage, MEMORY_HITS) }
+        val today = java.time.Instant.ofEpochMilli(clock()).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+        val hits = quietly(emptyList()) { memory.search(userMessage, MEMORY_HITS) }.filter { !it.expired(today) }
         if (hits.isNotEmpty()) {
             append("\n\n").append(Prompts.MEMORY_HEADER).append('\n')
-            hits.forEach { append("- ").append(it.title).append(" (").append(it.permalink).append("): ").append(it.snippet.replace('\n', ' ')).append('\n') }
+            hits.forEach {
+                append("- ").append(Prompts.memoryTag(it.kind, it.validUntil))
+                    .append(' ').append(it.title).append(" (").append(it.permalink).append("): ")
+                    .append(it.snippet.replace('\n', ' ')).append('\n')
+            }
         }
     }.trimEnd()
 
@@ -308,7 +313,8 @@ class XiaomanAgent(
         )
 
         private val RECORD_TOOLS = setOf(
-            AgentTools.RECORD_SAVE, AgentTools.TEMPLATE_READ, AgentTools.RECORD_LIST, AgentTools.RECORD_READ,
+            AgentTools.RECORD_SAVE, AgentTools.TEMPLATE_READ, AgentTools.TEMPLATE_SAVE,
+            AgentTools.RECORD_LIST, AgentTools.RECORD_READ,
         )
 
         fun howtoPermalink(key: String) = "howto/$key"

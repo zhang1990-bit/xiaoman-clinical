@@ -2,6 +2,40 @@
 
 本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)。日期为北京时间。
 
+## v1.5.0 — 2026-11-19
+
+**模板库 + 分层记忆**。
+
+### 模板能存了
+
+新增 `template_save(name, content, aliases)`：把用户给的模板整理成骨架后写进 `surgical-templates/`。
+
+- 文件头自动带 `aliases` / `version` / `updated`
+- 同一术式再存自动升版本，旧版留 `<name>.bak`（不进模板列表）
+- **别名可检索**：`LC`、`胆囊切除`、`腹腔镜胆囊切除` 都命中同一份——这是模板库最容易死的地方
+
+### 记忆分层
+
+每条记忆带 `kind` 与 `valid_until`：
+
+| kind | 寿命 |
+|---|---|
+| `patient` | 默认 30 天，到期不再注入 |
+| `preference` / `howto` / `template` | 永久 |
+
+- 过期条目**不删**，只是不进提示词；翻旧账用 `memory_search(includeExpired=true)`
+- 提示词里标注 `[近期·至11-08]` / `[长期·偏好]` / `[长期·经验]`
+- `memory_write` 新增 `kind`、`keepDays` 参数
+
+### 技能
+
+- `surgical-record`：存模板五条（整理成骨架、必填别名、不写具体数值）
+- `clinical-secretary`：记忆分层五条（患者类用 patient、出院主动 forget）
+
+### 测试
+
+新增 `MemoryLayersTest` 5 项、模板存取 3 项；核心模块 447 项。
+
 ## v1.4.0 — 2026-11-19
 
 **修「记不住」**。实测一天三台手术，写到第三台时前两台已经掉出对话窗口，模型开始串台。

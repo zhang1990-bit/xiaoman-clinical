@@ -1,5 +1,8 @@
 package dev.xiaoman.memory
 
+import dev.xiaoman.api.kindOf
+import dev.xiaoman.api.validUntilOf
+
 import dev.xiaoman.api.Note
 import dev.xiaoman.api.SearchHit
 import java.io.File
@@ -72,7 +75,7 @@ internal class MemoryIndex(private val root: File) {
             return docs.values
                 .sortedWith(compareByDescending<Doc> { it.note.updatedAtMillis }.thenBy { it.note.permalink })
                 .take(limit)
-                .map { SearchHit(it.note.permalink, it.note.title, Snippets.excerpt(it.note), 0.0) }
+                .map { SearchHit(it.note.permalink, it.note.title, Snippets.excerpt(it.note), 0.0, it.note.kindOf(), it.note.validUntilOf()) }
         }
         val queryTerms = Tokenizer.queryTerms(trimmed)
         if (queryTerms.isEmpty()) return emptyList()
@@ -102,7 +105,7 @@ internal class MemoryIndex(private val root: File) {
         return scored.filter { it.primary }
             .sortedWith(compareByDescending<Scored> { it.score }.thenByDescending { it.doc.note.updatedAtMillis })
             .take(limit)
-            .map { SearchHit(it.doc.note.permalink, it.doc.note.title, Snippets.best(it.doc.note, queryTerms), it.score) }
+            .map { SearchHit(it.doc.note.permalink, it.doc.note.title, Snippets.best(it.doc.note, queryTerms), it.score, it.doc.note.kindOf(), it.doc.note.validUntilOf()) }
     }
 
     private fun frequencies(): Map<String, Int> {

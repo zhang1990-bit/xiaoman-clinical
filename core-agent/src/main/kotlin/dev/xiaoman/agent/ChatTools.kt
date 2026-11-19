@@ -9,7 +9,9 @@ import dev.xiaoman.api.Note
 import dev.xiaoman.api.Observation
 import dev.xiaoman.api.PatientRoster
 import dev.xiaoman.api.PatientSlot
+import dev.xiaoman.api.KIND_KEY
 import dev.xiaoman.api.RecordStore
+import dev.xiaoman.api.VALID_UNTIL_KEY
 import dev.xiaoman.api.Relation
 import dev.xiaoman.api.ReminderScheduler
 import dev.xiaoman.api.RosterStore
@@ -42,6 +44,9 @@ import java.time.LocalDate
 import java.time.ZoneId
 
 private const val DEFAULT_UNTIL_DAYS = 14L
+
+/** 患者相关记忆默认 30 天后不再注入；偏好与经验永久保留。 */
+private const val DEFAULT_PATIENT_MEMORY_DAYS = 30
 
 internal class ToolArgumentException(message: String) : Exception(message)
 
@@ -77,6 +82,7 @@ internal class ChatTools(
             AgentTools.TASK_ROSTER -> taskRoster(args)
             AgentTools.RECORD_SAVE -> recordSave(args)
             AgentTools.TEMPLATE_READ -> templateRead(args)
+            AgentTools.TEMPLATE_SAVE -> templateSave(args)
             AgentTools.RECORD_LIST -> recordList()
             AgentTools.RECORD_READ -> recordRead(args)
             AgentTools.PHONE_TASK -> if (phoneTasks) phone(args) else error("这里不能操作手机，请用其他工具或告诉用户自己操作")
@@ -107,11 +113,22 @@ internal class ChatTools(
     private suspend fun search(args: JsonObject): String {
         val query = required(args, "query")
         val limit = ((args["limit"] as? JsonPrimitive)?.intOrNull ?: 5).coerceIn(1, 20)
-        val hits = memory.search(query, limit)
+        val today = today()
+        val includeExpired = (args["includeExpired"] as? JsonPrimitive)?.let { it.booleanOrNull ?: (it.content == "是") } == true
+        val hits = memory.search(query, limit * 2).filter { includeExpired || !it.expired(today) }.take(limit)
         return buildJsonObject {
             putJsonArray("hits") {
-                hits.forEach { h -> addJsonObject { put("permalink", h.permalink); put("title", h.title); put("snippet", h.snippet) } }
+                hits.forEach { h ->
+                    addJsonObject {
+                        put("permalink", h.permalink)
+                        put("title", h.title)
+                        put("snippet", h.snippet)
+                        if (h.kind.isNotEmpty()) put("kind", h.kind)
+                        if (h.validUntil != null) put("validUntil", h.validUntil)
+                    }
+                }
             }
+            put("today", today.toString())
         }.toString()
     }
 
@@ -143,12 +160,27 @@ internal class ChatTools(
         val permalink = JsonText.string(args, "permalink") ?: existing?.permalink ?: title
         val mergedObs = ((existing?.observations ?: emptyList()) + observations).distinctBy { it.category to it.content }
         val mergedRels = ((existing?.relations ?: emptyList()) + relations).distinctBy { it.type to it.target }
+        val kind = JsonText.string(args, "kind")?.trim()?.lowercase().orEmpty()
+        val keepDays = (args["keepDays"] as? JsonPrimitive)?.intOrNull
+        val frontmatter = (existing?.extraFrontmatter ?: emptyMap()).toMutableMap()
+        if (kind.isNotEmpty()) frontmatter[KIND_KEY] = kind
+        val effectiveKind = (frontmatter[KIND_KEY] as? String).orEmpty()
+        val days = keepDays ?: when (effectiveKind) {
+            "patient" -> DEFAULT_PATIENT_MEMORY_DAYS
+            "" -> null
+            else -> 0
+        }
+        when {
+            days == null -> Unit // 没给 kind 也没给天数：沿用已有的有效期
+            days <= 0 -> frontmatter.remove(VALID_UNTIL_KEY)
+            else -> frontmatter[VALID_UNTIL_KEY] = today().plusDays(days.toLong()).toString()
+        }
         val note = Note(
             title = title,
             permalink = permalink,
             type = JsonText.string(args, "type") ?: existing?.type ?: "note",
             tags = existing?.tags ?: emptyList(),
-            extraFrontmatter = existing?.extraFrontmatter ?: emptyMap(),
+            extraFrontmatter = frontmatter,
             body = NoteText.body(title, mergedObs, mergedRels, existing?.body?.let { NoteText.preamble(it) } ?: ""),
             observations = mergedObs,
             relations = mergedRels,
@@ -434,6 +466,26 @@ internal class ChatTools(
             put("path", path)
             put("chars", content.length)
             put("hint", "告诉用户文件路径即可，不要再重复贴全文")
+        }.toString()
+    }
+
+    private suspend fun templateSave(args: JsonObject): String {
+        val store = records ?: return error("模板功能没有启用")
+        val name = JsonText.string(args, "name")?.trim().orEmpty()
+        val content = JsonText.string(args, "content")?.trim().orEmpty()
+        if (name.isEmpty()) throw ToolArgumentException("缺少 name（术式名）")
+        if (content.length < 20) throw ToolArgumentException("content 太短，模板要写成可复用的骨架")
+        val aliases = JsonText.string(args, "aliases")
+            ?.split(",", "，", "、", ";", "；")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            .orEmpty()
+        val path = store.saveTemplate(name, content, aliases)
+        return buildJsonObject {
+            put("ok", true)
+            put("path", path)
+            put("aliases", aliases.size)
+            put("hint", "告诉用户已归档，并说明以后按哪个术式名/别名会命中这份模板")
         }.toString()
     }
 

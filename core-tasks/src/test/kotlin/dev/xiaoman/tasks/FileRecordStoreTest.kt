@@ -52,6 +52,31 @@ class FileRecordStoreTest {
     }
 
     @Test
+    fun saveTemplateWritesFrontmatterAndBumpsVersion() = runBlocking {
+        val (s, _) = store()
+        val first = s.saveTemplate("解剖性肝切除", "## 步骤\n阻断→缺血线→离断", listOf("肝段切除", "肝切除"))
+        assertTrue(first.endsWith("解剖性肝切除.md"))
+        val v1 = File(first).readText(Charsets.UTF_8)
+        assertTrue("aliases: [肝段切除, 肝切除]" in v1, v1)
+        assertTrue("version: 1" in v1)
+
+        val second = s.saveTemplate("解剖性肝切除", "## 步骤\n阻断两次→缺血线→离断", emptyList())
+        val v2 = File(second).readText(Charsets.UTF_8)
+        assertTrue("version: 2" in v2, v2)
+        assertTrue(File(second).parentFile!!.resolve("解剖性肝切除.bak").isFile, "旧版要留 .bak")
+        assertEquals(listOf("解剖性肝切除"), s.templates(), ".bak 不能出现在模板列表里")
+    }
+
+    @Test
+    fun templateIsFoundByAlias() = runBlocking {
+        val (s, _) = store()
+        s.saveTemplate("腹腔镜胆囊切除术", "## 步骤\n四孔", listOf("LC", "胆囊切除"))
+        assertEquals("腹腔镜胆囊切除术", s.templates().single())
+        assertTrue(s.template("LC")!!.contains("四孔"))
+        assertTrue(s.template("胆囊切除")!!.contains("四孔"))
+    }
+
+    @Test
     fun templatesAreListedAndRead() = runBlocking {
         val (s, root) = store()
         val dir = File(root, "templates").apply { mkdirs() }

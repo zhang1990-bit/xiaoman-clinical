@@ -30,6 +30,16 @@ object Prompts {
     const val SKILLS_HEADER = "## 可用技能（phone_task 的 skill 参数）"
     const val RECORDS_HEADER = "## 手机里已生成的手术记录"
 
+    /** 记忆条目前面的层级标记，让模型知道哪些是长期偏好、哪些会过期。 */
+    fun memoryTag(kind: String, validUntil: String?): String = when {
+        kind == "patient" && validUntil != null -> "[近期·至${validUntil.takeLast(5)}]"
+        kind == "patient" -> "[患者]"
+        kind == "preference" -> "[长期·偏好]"
+        kind == "howto" -> "[长期·经验]"
+        kind == "template" -> "[长期·模板]"
+        else -> "[记忆]"
+    }
+
     /** Injected every turn so "记不住" never depends on the trimmed chat history. */
     fun recordsSection(names: List<String>): String = buildString {
         append(RECORDS_HEADER).append('\n')
