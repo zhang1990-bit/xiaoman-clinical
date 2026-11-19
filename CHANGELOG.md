@@ -2,6 +2,30 @@
 
 本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)。日期为北京时间。
 
+## v1.6.0 — 2026-11-19
+
+**瘦身**：清掉与临床无关的技能，关掉读屏路径。
+
+### 技能从 13 个减到 2 个
+
+删掉：ai-news-brief、daily-quiz、health-alarms、meituan-takeout-order、open-settings-wifi、set-alarm、
+takeout-reorder、taobao-compare、taxi-home、today-plan、train-ticket-order。
+
+留下：`clinical-secretary`（查房待办）、`surgical-record`（手术记录）。
+
+好处：提示词不再列一堆点外卖、打车、出题的技能，模型不会误判你「帮我叫个东西」是想点外卖。
+
+### 关掉读屏
+
+- `phoneTasks` 恒为 false：不再提供 `phone_task` 工具，不再列「可用技能」里的 GUI 技能
+- 去掉聊天页顶部「无障碍服务未开启」横幅
+- 设置页去掉「操作模型」一整组（字段仍保留，兼容老配置，不再显示）
+
+### 服务页（MCP）
+
+预置服务全是消费类（高德、滴滴、途牛、12306、麦当劳、滴答清单、秘塔、AI 热点），
+与临床工作无关，**面板未删**，但不建议勾选：勾了之后这些工具会进提示词，而且调用等于把相关内容发给第三方。
+
 ## v1.5.0 — 2026-11-19
 
 **模板库 + 分层记忆**。

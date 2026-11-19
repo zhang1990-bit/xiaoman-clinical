@@ -186,7 +186,8 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         cachedAgent?.let { (k, agent) -> if (k == key) return agent }
         // DeepSeek and other text-only providers cannot read the screen, so the operator model may be
         // left blank; phone_task is then not offered at all and the chat model's config is reused.
-        val phoneTasks = current.operator.configured
+        // 临床秘书分支不读屏：phone_task 不提供，操作模型只保留字段以兼容旧配置。
+        val phoneTasks = false
         val agent = XiaomanAgent(
             chat = llm.create(current.chat.toModelConfig(ModelRole.CHAT)),
             operator = llm.create((if (phoneTasks) current.operator else current.chat).toModelConfig(ModelRole.OPERATOR)),

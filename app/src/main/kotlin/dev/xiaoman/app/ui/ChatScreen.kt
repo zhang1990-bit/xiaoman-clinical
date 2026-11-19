@@ -125,12 +125,6 @@ fun ChatScreen(graph: AppGraph, onOpenSettings: () -> Unit) {
                 }
             },
         )
-        // The accessibility banner only matters when a screen-reading operator model is configured.
-        if (service == null && settings.operator.configured) {
-            Banner(stringResource(R.string.banner_accessibility), stringResource(R.string.banner_accessibility_action)) {
-                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }
-        }
         if (!settings.configured) Banner(stringResource(R.string.banner_models), stringResource(R.string.banner_models_action), onOpenSettings)
         if (!notificationsGranted.granted) Banner(stringResource(R.string.banner_notifications), stringResource(R.string.banner_notifications_action), notificationsGranted.request)
         LazyColumn(

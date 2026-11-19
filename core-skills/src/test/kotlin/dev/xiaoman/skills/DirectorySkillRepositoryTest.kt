@@ -41,16 +41,11 @@ class DirectorySkillRepositoryTest {
         val result = DirectorySkillRepository(listOf(examples)).reload()
         assertEquals(emptyList(), result.problems)
         assertEquals(
-            listOf(
-                "ai-news-brief", "clinical-secretary", "daily-quiz", "health-alarms", "meituan-takeout-order",
-                "open-settings-wifi", "set-alarm", "surgical-record", "takeout-reorder", "taobao-compare", "taxi-home", "today-plan",
-                "train-ticket-order",
-            ),
+            listOf("clinical-secretary", "surgical-record"),
             result.skills.map { it.name },
         )
-        val taxi = result.skills.single { it.name == "taxi-home" }
-        assertEquals(listOf("确认呼叫"), taxi.confirmBefore)
-        assertEquals(FlowStep.Deeplink("route"), taxi.flow?.steps?.first())
+        val record = result.skills.single { it.name == "surgical-record" }
+        assertTrue("手术记录" in record.description, record.description)
     }
 
     @Test

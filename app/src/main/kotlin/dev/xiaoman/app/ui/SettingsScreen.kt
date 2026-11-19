@@ -62,15 +62,6 @@ fun SettingsScreen(graph: AppGraph) {
         }
         ConnectionTest(graph, form.chat)
         HorizontalDivider()
-        ModelSection(stringResource(R.string.settings_operator_model), form.operator) {
-            form = form.copy(operator = it)
-            saved = false
-        }
-        TextButton(onClick = {
-            form = form.copy(operator = form.operator.copy(baseUrl = form.chat.baseUrl, apiKey = form.chat.apiKey))
-            saved = false
-        }) { Text(stringResource(R.string.settings_copy_chat)) }
-        HorizontalDivider()
 
         Text(stringResource(R.string.settings_agent), style = MaterialTheme.typography.titleMedium)
         OutlinedTextField(
