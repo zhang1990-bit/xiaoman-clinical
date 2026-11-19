@@ -28,6 +28,15 @@ object Prompts {
 - 给用户的结果用简短中文，不要编造结果，以工具返回为准。"""
 
     const val SKILLS_HEADER = "## 可用技能（phone_task 的 skill 参数）"
+    const val RECORDS_HEADER = "## 手机里已生成的手术记录"
+
+    /** Injected every turn so "记不住" never depends on the trimmed chat history. */
+    fun recordsSection(names: List<String>): String = buildString {
+        append(RECORDS_HEADER).append('\n')
+        append("（按时间倒序；对话历史会被裁剪，这里不会。要引用旧记录先用 record_read 读回来，不要凭记忆复述。）\n")
+        names.forEach { append("- ").append(it).append('\n') }
+    }
+
     const val CHAT_SKILLS_HEADER = "## 聊天工作流"
     const val CHAT_SKILLS_HINT = "用户的话符合某个工作流的描述时，直接在对话里按它的说明做，可配合 memory_*、reminder_set 和外部工具；不要交给 phone_task。"
     const val CHAT_SKILL_PHONE_REFUSED = "这是聊天工作流，不能通过 phone_task 执行，请直接在对话里按技能说明完成"

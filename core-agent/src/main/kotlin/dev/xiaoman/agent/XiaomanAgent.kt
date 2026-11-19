@@ -216,6 +216,10 @@ class XiaomanAgent(
                 }
             }
         }
+        val generated = records?.let { quietly(emptyList()) { it.list() } }.orEmpty()
+        if (generated.isNotEmpty()) {
+            append("\n\n").append(Prompts.recordsSection(generated.take(MAX_RECORDS_IN_PROMPT)))
+        }
         val hits = quietly(emptyList()) { memory.search(userMessage, MEMORY_HITS) }
         if (hits.isNotEmpty()) {
             append("\n\n").append(Prompts.MEMORY_HEADER).append('\n')
@@ -285,13 +289,16 @@ class XiaomanAgent(
 
     companion object {
         const val MAX_TOOL_ROUNDS = 8
-        const val HISTORY_LIMIT = 20
+        const val HISTORY_LIMIT = 40
         const val MEMORY_HITS = 5
         const val HOWTO_TYPE = "howto"
         const val PATH_CATEGORY = "path"
         private const val MAX_HOWTO_NOTES = 3
         const val MAX_CHAT_SKILL_CHARS = 5000
         const val MAX_CHAT_SKILLS_CHARS = 8000
+
+        /** How many saved record names ride along in the system prompt. */
+        const val MAX_RECORDS_IN_PROMPT = 12
         private val TASK_TOOLS = setOf(
             AgentTools.TASK_ADD,
             AgentTools.TASK_LIST,
@@ -300,7 +307,9 @@ class XiaomanAgent(
             AgentTools.TASK_ROSTER,
         )
 
-        private val RECORD_TOOLS = setOf(AgentTools.RECORD_SAVE, AgentTools.TEMPLATE_READ)
+        private val RECORD_TOOLS = setOf(
+            AgentTools.RECORD_SAVE, AgentTools.TEMPLATE_READ, AgentTools.RECORD_LIST, AgentTools.RECORD_READ,
+        )
 
         fun howtoPermalink(key: String) = "howto/$key"
     }

@@ -37,7 +37,7 @@ class ChatTurnTest {
     fun historyIsBounded() = runTest {
         val h = Harness()
         h.chat.fallback = { dev.xiaoman.api.ChatResponse("嗯") }
-        repeat(15) { h.agent.handle("消息 $it", h.events, h.stop) }
+        repeat(30) { h.agent.handle("消息 $it", h.events, h.stop) }
         val last = h.chat.requests.last().messages
         assertEquals(1 + XiaomanAgent.HISTORY_LIMIT + 1, last.size)
         assertEquals(ChatRole.USER, last[1].role)

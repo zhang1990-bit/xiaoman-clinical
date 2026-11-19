@@ -39,6 +39,14 @@ class FileRecordStore(
             .orEmpty()
     }
 
+    override suspend fun read(name: String): String? = withContext(Dispatchers.IO) {
+        val clean = sanitize(name.removeSuffix(".txt"))
+        if (clean.isEmpty()) return@withContext null
+        recordsDir.listFiles { f -> f.isFile }?.firstOrNull {
+            it.nameWithoutExtension.equals(clean, ignoreCase = true) || it.name.equals(name, ignoreCase = true)
+        }?.readText(Charsets.UTF_8)
+    }
+
     override suspend fun templates(): List<String> = withContext(Dispatchers.IO) {
         templatesDir.listFiles { f -> f.isFile && (f.extension == "md" || f.extension == "txt") }
             ?.sortedBy { it.name }

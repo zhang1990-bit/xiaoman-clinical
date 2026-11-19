@@ -24,6 +24,8 @@ object AgentTools {
     const val TASK_ROSTER = "task_roster"
     const val RECORD_SAVE = "record_save"
     const val TEMPLATE_READ = "template_read"
+    const val RECORD_LIST = "record_list"
+    const val RECORD_READ = "record_read"
 
     val specs: List<ToolSpec> = listOf(
         ToolSpec(
@@ -169,6 +171,18 @@ object AgentTools {
                 "title" to str("文件名主体，如 20261118_开腹肝癌切除；不要带 .txt"),
                 "content" to str("手术记录正文，段落之间用一个空行分隔"),
             ),
+        ),
+        ToolSpec(
+            RECORD_LIST,
+            "列出手机里已经生成的手术记录（按时间倒序）。开工前先看一眼：今天做了几台、上一台叫什么，"
+                + "避免把两台的信息串在一起。对话历史会被裁剪，磁盘上的记录不会。",
+            schema(emptyList()),
+        ),
+        ToolSpec(
+            RECORD_READ,
+            "读回一份已生成的手术记录全文。用户问「上一台怎么写的」「刚才那台改哪了」时用它，"
+                + "不要凭对话记忆复述。",
+            schema(listOf("name"), "name" to str("文件名，如 20261119_1_开腹肝癌切除，可省略 .txt")),
         ),
         ToolSpec(
             TEMPLATE_READ,

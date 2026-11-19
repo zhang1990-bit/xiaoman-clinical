@@ -206,6 +206,14 @@ class FakeRecordStore : RecordStore {
 
     override suspend fun list(): List<String> = files.keys.toList()
 
+    override suspend fun read(name: String): String? {
+        val wanted = name.removeSuffix(".txt")
+        return files.entries.firstOrNull {
+            val file = it.key.substringAfterLast('/').removeSuffix(".txt")
+            file.equals(wanted, ignoreCase = true) || it.key == name
+        }?.value
+    }
+
     override suspend fun templates(): List<String> = templateFiles.keys.toList()
 
     override suspend fun template(name: String): String? = templateFiles[name]

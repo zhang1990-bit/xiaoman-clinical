@@ -77,6 +77,8 @@ internal class ChatTools(
             AgentTools.TASK_ROSTER -> taskRoster(args)
             AgentTools.RECORD_SAVE -> recordSave(args)
             AgentTools.TEMPLATE_READ -> templateRead(args)
+            AgentTools.RECORD_LIST -> recordList()
+            AgentTools.RECORD_READ -> recordRead(args)
             AgentTools.PHONE_TASK -> if (phoneTasks) phone(args) else error("这里不能操作手机，请用其他工具或告诉用户自己操作")
             else -> external(call, taskId, emit)
         }
@@ -432,6 +434,30 @@ internal class ChatTools(
             put("path", path)
             put("chars", content.length)
             put("hint", "告诉用户文件路径即可，不要再重复贴全文")
+        }.toString()
+    }
+
+    private suspend fun recordList(): String {
+        val store = records ?: return error("记录功能没有启用")
+        val names = store.list()
+        return buildJsonObject {
+            put("ok", true)
+            put("count", names.size)
+            putJsonArray("records") { names.forEach { add(it) } }
+            if (names.isEmpty()) put("hint", "还没有生成过记录；这一台是今天第一台")
+        }.toString()
+    }
+
+    private suspend fun recordRead(args: JsonObject): String {
+        val store = records ?: return error("记录功能没有启用")
+        val name = JsonText.string(args, "name")?.trim().orEmpty()
+        if (name.isEmpty()) throw ToolArgumentException("缺少 name，先用 record_list 看有哪些")
+        val text = store.read(name) ?: return error("找不到记录：$name，先用 record_list 看有哪些")
+        return buildJsonObject {
+            put("ok", true)
+            put("name", name)
+            put("chars", text.length)
+            put("content", text)
         }.toString()
     }
 

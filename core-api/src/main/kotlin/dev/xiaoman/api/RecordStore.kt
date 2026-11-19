@@ -13,6 +13,9 @@ interface RecordStore {
     /** File names already saved, newest first. */
     suspend fun list(): List<String>
 
+    /** Full text of one saved record, or null when it is gone. */
+    suspend fun read(name: String): String?
+
     /** Template names the user dropped into the template folder. */
     suspend fun templates(): List<String>
 
