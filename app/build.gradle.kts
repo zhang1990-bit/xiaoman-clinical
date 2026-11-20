@@ -39,8 +39,8 @@ android {
         applicationId = "dev.xiaoman.app"
         minSdk = 30
         targetSdk = 35
-        versionCode = 16
-        versionName = "1.7.2"
+        versionCode = 17
+        versionName = "1.8.0"
     }
     buildTypes {
         release {
@@ -74,7 +74,6 @@ dependencies {
     implementation(project(":core-skills"))
     implementation(project(":core-sentinel"))
     implementation(project(":core-agent"))
-    implementation(project(":core-mcp"))
     implementation(project(":core-tasks"))
     implementation(project(":hands"))
 

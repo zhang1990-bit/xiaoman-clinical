@@ -22,14 +22,6 @@ import dev.xiaoman.hands.MutableStopSignal
 import dev.xiaoman.hands.XiaomanAccessibilityService
 import dev.xiaoman.llm.LlmClientFactory
 import dev.xiaoman.llm.LlmClients
-import dev.xiaoman.app.settings.McpSettingsStore
-import dev.xiaoman.mcp.McpCatalog
-import dev.xiaoman.mcp.McpConfig
-import dev.xiaoman.mcp.McpPlatform
-import dev.xiaoman.mcp.McpSelection
-import dev.xiaoman.mcp.McpToolProvider
-import dev.xiaoman.mcp.ServerStatus
-import dev.xiaoman.mcp.UserChannelApprovals
 import dev.xiaoman.memory.FileMemoryStore
 import dev.xiaoman.sentinel.PolicySentinel
 import dev.xiaoman.skills.DirectorySkillRepository
@@ -53,9 +45,8 @@ import java.time.YearMonth
  * [XiaomanApp.onCreate].
  *
  * Folders (`<external files>` = `/sdcard/Android/data/dev.xiaoman.app/files`):
- * `memory/`, `skills/` (user skills, override bundled ones), `traces/`, optional `mcp.json` (MCP servers,
- * HTTP only; keys are written in the file because Android has no environment); bundled skills are
- * extracted to `<files>/bundled-skills/`.
+ * `memory/`、`skills/`（用户技能，覆盖同名内置）、`traces/`、`tasks/`、`patients/`、`records/`、
+ * `surgical-templates/`。内置技能解压到 `<files>/bundled-skills/`。
  */
 class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.default) {
     private val app: Context = context.applicationContext
@@ -68,7 +59,6 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     val skillsDir = File(externalRoot, "skills")
     val tracesDir = File(externalRoot, "traces")
     val bundledSkillsDir = File(app.filesDir, "bundled-skills")
-    val mcpFile = File(externalRoot, "mcp.json")
     val tasksDir = File(externalRoot, "tasks")
 
     val settings: SettingsStore by lazy { SettingsStore.create(app) }
@@ -97,38 +87,6 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     val recordStore by lazy { FileRecordStore(recordsDir, templatesDir) }
 
     val taskScheduler by lazy { TaskDigestScheduler(app, taskStore, notifier) }
-
-    /** Services ticked on the 服务 screen; keys live in the encrypted settings file. */
-    val mcpSettings: McpSettingsStore by lazy { McpSettingsStore.create(app, settings.secret) }
-
-    private var cachedMcp: Pair<McpSelection, McpToolProvider?>? = null
-
-    /** MCP config of [selection] plus the HTTP servers of the optional `mcp.json` (stdio needs a desktop). */
-    fun mcpConfig(selection: McpSelection): McpConfig {
-        val ticked = McpCatalog.builtIn.toConfig(selection, McpPlatform.ANDROID)
-        val file = McpConfig.load(mcpFile, emptyMap())
-        val fileServers = file.servers.filter { it.enabled && it.url != null && ticked.servers.none { t -> t.name == it.name } }
-        (ticked.warnings + file.warnings).forEach { Log.w(TAG, "mcp: $it") }
-        return McpConfig(ticked.servers + fileServers, ticked.warnings + file.warnings)
-    }
-
-    /** The provider for [selection], rebuilt (and the old one closed) when the ticked services change. */
-    @Synchronized
-    private fun mcpFor(selection: McpSelection): McpToolProvider? {
-        cachedMcp?.let { (s, provider) -> if (s == selection) return provider }
-        cachedMcp?.second?.close()
-        val config = mcpConfig(selection)
-        val provider = if (config.servers.isEmpty()) null else McpToolProvider(config, UserChannelApprovals(session))
-        cachedMcp = selection to provider
-        return provider
-    }
-
-    /** Connects to the services of [selection] once, for the 测试连接 button; never kept. */
-    suspend fun testMcp(selection: McpSelection): List<ServerStatus> {
-        val config = mcpConfig(selection)
-        if (config.servers.isEmpty()) return emptyList()
-        return McpToolProvider(config, { false }).use { it.status(refresh = true) }
-    }
 
     val runIds = RunIds()
     val uiVisible = MutableStateFlow(false)
@@ -172,7 +130,7 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     lateinit var startup: Deferred<Unit>
         private set
 
-    private var cachedAgent: Pair<Pair<AppSettings, McpSelection>, Agent>? = null
+    private var cachedAgent: Pair<AppSettings, Agent>? = null
 
     /**
      * 一次性迁移：老版本的待办只有姓名，没有患者档案。
@@ -243,8 +201,7 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     fun agent(): Agent? {
         val current = settings.current
         if (!current.configured) return null
-        val key = current to mcpSettings.current
-        cachedAgent?.let { (k, agent) -> if (k == key) return agent }
+        cachedAgent?.let { (k, agent) -> if (k == current) return agent }
         // DeepSeek and other text-only providers cannot read the screen, so the operator model may be
         // left blank; phone_task is then not offered at all and the chat model's config is reused.
         // 临床秘书分支不读屏：phone_task 不提供，操作模型只保留字段以兼容旧配置。
@@ -260,13 +217,14 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
             reminders = reminderScheduler,
             config = current.agentConfig().copy(phoneTasks = phoneTasks),
             idFactory = runIds::next,
-            externalTools = mcpFor(key.second),
+            // 临床版不接外部服务：MCP 模块留在仓库里，但不打包进 APK。
+            externalTools = null,
             tasks = taskStore,
             roster = rosterStore,
             records = recordStore,
             patients = patientStore,
         )
-        cachedAgent = key to agent
+        cachedAgent = current to agent
         return agent
     }
 
