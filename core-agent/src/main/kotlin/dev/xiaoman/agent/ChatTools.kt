@@ -401,6 +401,7 @@ internal class ChatTools(
         val slots = PatientRoster.normalize(read.map { PatientSlot(it.bed, it.name, today.toString()) }, today.toString())
         val diff = PatientRoster.diff(previous, slots)
         roster?.replace(slots)
+        val patientsTouched = syncPatientsFromRoster(slots, today)
 
         val apply = (args["apply"] as? JsonPrimitive)?.let { it.booleanOrNull ?: (it.content == "是") } == true
         val all = store.all()
@@ -416,6 +417,9 @@ internal class ChatTools(
             put("discharged", diff.removed.size)
             put("movedBeds", diff.moved.size)
             put("checkedTasks", report.checked)
+            put("patientsCreated", patientsTouched.first)
+            put("patientsArchived", patientsTouched.second)
+            put("patientsInHospital", patients?.let { it.all().size } ?: 0)
             putJsonArray("detail") {
                 diff.added.forEach { add("新入｜${it.bed}床 ${it.name}") }
                 diff.removed.forEach { add("出院或转出｜${it.bed}床 ${it.name}") }
@@ -436,6 +440,57 @@ internal class ChatTools(
             }
             if (report.clear && diff.empty) put("summary", "名单没变化，待办床号全部对得上")
         }.toString()
+    }
+
+    /**
+     * 把当天的查房单落成患者档案：新出现的建档、换床的改床、名单里没有的归档。
+     *
+     * 只归档"之前出现在名单上、今天却不见了"的人。纯口述建的患者（lastSeenOnRoster 为空）
+     * 不会因为一张旧照片被误归档——这一点比"当天没出现就归档"更重要。
+     *
+     * @return 新建数 to 归档数
+     */
+    private suspend fun syncPatientsFromRoster(slots: List<PatientSlot>, today: LocalDate): Pair<Int, Int> {
+        val store = patients ?: return 0 to 0
+        val existing = store.all() + store.archived()
+        val byName = existing.groupBy { it.name }
+        var created = 0
+        var archived = 0
+
+        slots.forEach { slot ->
+            val candidates = byName[slot.name].orEmpty()
+            val hit = candidates.firstOrNull { it.bed == slot.bed } ?: candidates.firstOrNull()
+            if (hit == null) {
+                store.upsert(
+                    Patient(
+                        id = nextPatientId(store),
+                        name = slot.name,
+                        bed = slot.bed,
+                        admittedOn = today.toString(),
+                        createdAt = today.toString(),
+                        updatedAt = today.toString(),
+                        lastSeenOnRoster = today.toString(),
+                    ),
+                )
+                created++
+            } else {
+                var next = hit.copy(lastSeenOnRoster = today.toString(), updatedAt = today.toString())
+                if (next.stage == PatientStage.ARCHIVED) {
+                    next = next.copy(stage = PatientStage.ADMITTED, archivedOn = null, archiveReason = null)
+                }
+                if (next.bed != slot.bed) next = next.movedTo(slot.bed, today.toString())
+                store.upsert(next)
+            }
+        }
+
+        val seen = slots.map { it.name }.toSet()
+        existing.filter { it.stage != PatientStage.ARCHIVED && it.name !in seen }
+            .filter { it.lastSeenOnRoster != null && it.lastSeenOnRoster != today.toString() }
+            .forEach {
+                store.archive(it.id, "名单中未出现", today.toString())
+                archived++
+            }
+        return created to archived
     }
 
     /** Answers from the saved roster alone; no photo, no reconciliation. */
@@ -549,7 +604,8 @@ internal class ChatTools(
                 admittedOn = today.toString(),
                 createdAt = today.toString(),
                 updatedAt = today.toString(),
-                lastSeenOnRoster = today.toString(),
+                // 没上过名单：别因为一张没拍到他的照片就被归档
+                lastSeenOnRoster = null,
             )
         }
         name?.takeIf { it.isNotEmpty() }?.let { next = next.copy(name = it) }

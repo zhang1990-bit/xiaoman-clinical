@@ -92,6 +92,47 @@ class RosterToolTest {
     }
 
     @Test
+    fun rosterImportBuildsPatientFiles() = runTest {
+        val h = Harness()
+        h.chat.tools(sync("""[{"bed":"12","name":"李xx"},{"bed":"13","name":"王xx"}]""")).reply("13 位")
+
+        h.agent.handle("这是今天的在院患者", h.events, h.stop)
+
+        assertEquals(listOf("12", "13"), h.patients.all().map { it.bed })
+        assertTrue("\"patientsCreated\":2" in h.chat.requests.last().messages.last().text)
+    }
+
+    @Test
+    fun secondImportArchivesWhoDisappeared() = runTest {
+        val h = Harness()
+        h.patients.items += dev.xiaoman.api.Patient(
+            id = "p-0009", name = "王xx", bed = "13", admittedOn = "2026-11-18",
+            createdAt = "2026-11-18", updatedAt = "2026-11-18", lastSeenOnRoster = "2026-11-19",
+        )
+        h.chat.tools(sync("""[{"bed":"12","name":"李xx"}]""")).reply("收到")
+
+        h.agent.handle("今天的名单", h.events, h.stop)
+
+        assertEquals(listOf("李xx"), h.patients.all().map { it.name })
+        assertEquals(listOf("王xx"), h.patients.archived().map { it.name })
+    }
+
+    @Test
+    fun patientCreatedByDictationIsNotArchivedByAnOldPhoto() = runTest {
+        val h = Harness()
+        h.patients.items += dev.xiaoman.api.Patient(
+            id = "p-0005", name = "新来的", bed = "99", admittedOn = "2026-11-20",
+            createdAt = "2026-11-20", updatedAt = "2026-11-20", lastSeenOnRoster = null,
+        )
+        h.chat.tools(sync("""[{"bed":"12","name":"李xx"}]""")).reply("收到")
+
+        h.agent.handle("补发一张昨天的名单", h.events, h.stop)
+
+        assertEquals(2, h.patients.all().size)
+        assertTrue(h.patients.archived().isEmpty())
+    }
+
+    @Test
     fun noPhotoAndNoSavedRosterIsAnError() = runTest {
         val h = Harness()
         h.chat.tools(ToolCall("c1", AgentTools.TASK_ROSTER, """{"beds":[]}""")).reply("还没有名单")

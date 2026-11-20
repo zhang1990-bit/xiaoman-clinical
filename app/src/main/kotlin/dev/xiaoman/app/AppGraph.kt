@@ -181,8 +181,10 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     private suspend fun migratePatients() {
         val store = patientStore
         if (store.all().isNotEmpty() || store.archived().isNotEmpty()) return
+        // 先把已经导入过的查房单落成档案：用户发过的照片不该白拍。
+        val slots = rosterStore.all()
         val open = taskStore.all().filter { it.state != TaskState.DONE }
-        if (open.isEmpty()) return
+        if (open.isEmpty() && slots.isEmpty()) return
         val source = File(tasksDir, "tasks.json")
         val backup = File(tasksDir, "tasks.pre-patients.json")
         if (source.isFile && !backup.exists()) runCatching { source.copyTo(backup, overwrite = false) }
@@ -201,6 +203,22 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
             )
         }
         taskStore.updateAll(open.map { it.copy(patientId = idByName[it.patientKey]) })
+
+        // 名单里有、待办里没有的人，也补上档案
+        val today0 = java.time.LocalDate.now().toString()
+        val known = idByName.keys.toMutableSet()
+        var seq = names.size
+        slots.filter { it.name !in known }.forEach { slot ->
+            seq++
+            store.upsert(
+                Patient(
+                    id = "p-" + seq.toString().padStart(4, '0'),
+                    name = slot.name, bed = slot.bed,
+                    admittedOn = slot.seenAt, createdAt = today0, updatedAt = today0,
+                    lastSeenOnRoster = slot.seenAt,
+                ),
+            )
+        }
         store.log(
             PatientEvent(
                 java.time.LocalDateTime.now().withNano(0).toString(),
