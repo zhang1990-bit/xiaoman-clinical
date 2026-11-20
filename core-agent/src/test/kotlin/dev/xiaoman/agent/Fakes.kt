@@ -190,6 +190,12 @@ class FakeTaskStore : TaskStore {
     }
 
     override suspend fun find(id: String): CareTask? = items.firstOrNull { it.id == id }
+
+    override suspend fun remove(ids: Set<String>): Int {
+        val before = items.size
+        items.removeAll { it.id in ids }
+        return before - items.size
+    }
 }
 
 /** In-memory ward table, replaced whole on every sync. */

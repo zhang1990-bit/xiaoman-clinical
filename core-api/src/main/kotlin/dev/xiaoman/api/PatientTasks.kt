@@ -42,6 +42,11 @@ object PatientTasks {
             out += Planned("是否需请会诊", consultWindowEnds)
         }
 
+        // 已开医嘱、还没提请：先催"请会诊"这件事本身
+        patient.consults.filter { it.status == "toRequest" }.forEach { c ->
+            out += Planned("请${c.dept}会诊", admitted.plusDaysText(3))
+        }
+
         // 已提请未回复：跟着，直到回复
         patient.consults.filter { it.status == "requested" }.forEach { c ->
             val until = c.requestedOn.toDateOrNull()?.plusDaysText(14) ?: admitted.plusDaysText(14)
@@ -68,6 +73,8 @@ object PatientTasks {
             first.startsWith("术前检查") -> patient.preopDone || patient.surgery != null
             first.startsWith("检查") -> patient.preopDone || patient.surgery != null
             first.startsWith("是否需请会诊") -> patient.consults.isNotEmpty()
+            first.startsWith("请") && first.endsWith("会诊") ->
+                patient.consults.none { it.status == "toRequest" }
             first.startsWith("会诊回复") -> patient.consults.none { it.status == "requested" }
             first.startsWith("会诊后续") -> patient.consults.none { it.status != "requested" && !it.followUp.isNullOrBlank() }
             first.startsWith("上 MDT") -> !patient.mdt.isNullOrBlank() && !patient.mdt.startsWith("待")

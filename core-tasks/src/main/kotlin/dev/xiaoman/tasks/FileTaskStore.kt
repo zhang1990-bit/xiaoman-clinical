@@ -70,6 +70,15 @@ class FileTaskStore(
 
     override suspend fun find(id: String): CareTask? = locked { read().firstOrNull { it.id == id } }
 
+    override suspend fun remove(ids: Set<String>): Int = locked {
+        if (ids.isEmpty()) return@locked 0
+        val current = read()
+        val kept = current.filterNot { it.id in ids }
+        val removed = current.size - kept.size
+        if (removed > 0) write(kept)
+        removed
+    }
+
     /**
      * Moves closed or expired tasks whose last day is before the first day of [keepFrom] into
      * `archive/YYYY-MM.md`, grouped by the month they ended in. Returns how many were archived.

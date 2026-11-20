@@ -240,6 +240,7 @@ object AgentTools {
                 "tumor" to str("填 true/false，是否肿瘤（决定要不要推 MDT）"),
                 "mdt" to str("MDT 状态：待排 / 已排 11-22 / 已讨论"),
                 "preopDone" to str("术前检查是否完善，填 true 关闭该提醒"),
+                "consult" to str("要请的会诊科室，如 心内科；会生成「请心内科会诊」待办，做完点掉才算已提请"),
             ),
         ),
         ToolSpec(

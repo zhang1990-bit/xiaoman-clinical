@@ -60,6 +60,18 @@ class PatientTasksTest {
     }
 
     @Test
+    fun consultMovesFromRequestToTracking() {
+        val toRequest = patient(consults = listOf(Consult("心内科", "2026-11-20", status = "toRequest")))
+        assertTrue(PatientTasks.desired(toRequest, today).any { it.item == "请心内科会诊" })
+        assertFalse(PatientTasks.desired(toRequest, today).any { it.item == "会诊回复：心内科" })
+        assertFalse(PatientTasks.satisfied(toRequest, "请心内科会诊", today))
+
+        val requested = patient(consults = listOf(Consult("心内科", "2026-11-20", status = "requested")))
+        assertTrue(PatientTasks.satisfied(requested, "请心内科会诊", today), "提请完成后这条就该消失")
+        assertTrue(PatientTasks.desired(requested, today).any { it.item == "会诊回复：心内科" })
+    }
+
+    @Test
     fun surgeryClosesPreopReminders() {
         val done = patient(surgery = Surgery("2026-11-20", "胆囊切除"), preopDone = true)
         assertTrue(PatientTasks.satisfied(done, "术前检查是否完善", today))

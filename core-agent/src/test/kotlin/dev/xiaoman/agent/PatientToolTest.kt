@@ -208,6 +208,23 @@ class PatientToolTest {
     }
 
     @Test
+    fun askingForAConsultCreatesTheToDoNotJustArecord() = runTest {
+        val h = Harness()
+        h.chat.tools(
+            ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx","consult":"心内科"}"""),
+        ).reply("已加")
+
+        h.agent.handle("12 床请心内科会诊", h.events, h.stop)
+
+        val patient = h.patients.items.single()
+        assertEquals("toRequest", patient.consults.single().status)
+        assertTrue(
+            h.tasks.items.any { it.item == "请心内科会诊" },
+            h.tasks.items.map { it.item }.toString(),
+        )
+    }
+
+    @Test
     fun archiveMovesPatientOutOfTheList() = runTest {
         val h = Harness()
         h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx"}"""))

@@ -7,9 +7,11 @@ import dev.xiaoman.api.Agent
 import dev.xiaoman.api.ChatMessage
 import dev.xiaoman.api.ChatRequest
 import dev.xiaoman.api.ModelConfig
+import dev.xiaoman.api.CareTask
 import dev.xiaoman.api.ModelRole
 import dev.xiaoman.api.Patient
 import dev.xiaoman.api.PatientEvent
+import dev.xiaoman.api.TaskRule
 import dev.xiaoman.api.TaskState
 import dev.xiaoman.app.session.AgentSession
 import dev.xiaoman.app.session.SessionTexts
@@ -189,6 +191,80 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
      * One tiny request with the settings currently typed on screen, so the Settings screen can show
      * the provider's own error ("Model Not Exist") instead of a generic "模型服务暂时不可用".
      */
+    /**
+     * 患者页上点「已完成」：标记待办完成，并把结果写回患者档案。
+     *
+     * 三类有副作用：术前检查 → preopDone；请X会诊 → 会诊转已提请并排上「会诊回复」；
+     * 会诊回复：X → 会诊转已回复。
+     */
+    suspend fun completeTaskFromPatientPage(taskId: String): Boolean {
+        val task = taskStore.find(taskId) ?: return false
+        val today = java.time.LocalDate.now()
+        val patient = task.patientId?.let { patientStore.find(it) }
+        val item = task.item
+
+        if (patient != null) {
+            var next = patient
+            when {
+                item.startsWith("术前检查") || item.startsWith("检查：") -> next = patient.copy(preopDone = true)
+                item.startsWith("请") && item.endsWith("会诊") -> {
+                    val dept = item.removePrefix("请").removeSuffix("会诊")
+                    next = patient.copy(
+                        consults = patient.consults.map {
+                            if (it.dept == dept && it.status == "toRequest") {
+                                it.copy(status = "requested", requestedOn = today.toString())
+                            } else {
+                                it
+                            }
+                        },
+                    )
+                }
+                item.startsWith("会诊回复") -> {
+                    val dept = item.substringAfter("：")
+                    next = patient.copy(
+                        consults = patient.consults.map {
+                            if (it.dept == dept && it.status == "requested") {
+                                it.copy(status = "replied", repliedOn = today.toString())
+                            } else {
+                                it
+                            }
+                        },
+                    )
+                }
+            }
+            if (next != patient) patientStore.upsert(next.copy(updatedAt = today.toString()))
+        }
+
+        taskStore.update(task.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = "患者页点完成"))
+
+        if (patient != null && item.startsWith("请") && item.endsWith("会诊")) {
+            val dept = item.removePrefix("请").removeSuffix("会诊")
+            val id = "cr-${patient.id}-$dept"
+            if (taskStore.find(id) == null) {
+                taskStore.add(
+                    listOf(
+                        CareTask(
+                            id = id, bed = patient.bed, name = patient.name, patientKey = patient.name,
+                            patientId = patient.id, item = "会诊回复：$dept", note = "自动",
+                            rule = TaskRule(), state = TaskState.ACTIVE,
+                            until = today.plusDays(14).toString(), createdAt = today.toString(),
+                            source = "patient",
+                        ),
+                    ),
+                )
+            }
+        }
+        return true
+    }
+
+    /** 完成病案首页：患者、待办、事件一并清除，不可恢复。 */
+    suspend fun purgePatient(id: String): Boolean {
+        if (patientStore.find(id) == null && patientStore.archived().none { it.id == id }) return false
+        val ids = taskStore.all().filter { it.patientId == id }.map { it.id }.toSet()
+        taskStore.remove(ids)
+        return patientStore.purge(id)
+    }
+
     suspend fun testChatModel(config: ModelConfig): Result<String> = runCatching {
         val reply = llm.create(config)
             .complete(ChatRequest(listOf(ChatMessage.user("你好"))))

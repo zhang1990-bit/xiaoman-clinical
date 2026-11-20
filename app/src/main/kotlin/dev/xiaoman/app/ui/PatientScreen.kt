@@ -23,6 +23,7 @@ import dev.xiaoman.api.Patient
 import dev.xiaoman.api.PatientGaps
 import dev.xiaoman.api.PatientStage
 import dev.xiaoman.api.TaskState
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -44,12 +45,16 @@ fun PatientScreen(graph: AppGraph) {
     var selected by remember { mutableStateOf<Patient?>(null) }
     var loaded by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
+    val uiScope = rememberCoroutineScope()
+    suspend fun reload() {
         inHospital = graph.patientStore.all()
         archived = graph.patientStore.archived()
         tasks = graph.taskStore.all().filter { it.state != TaskState.DONE }
         loaded = true
     }
+    LaunchedEffect(Unit) { reload() }
+    var pendingPurge by remember { mutableStateOf<Patient?>(null) }
+    var pendingArchive by remember { mutableStateOf<Patient?>(null) }
 
     selected?.let { patient ->
         PatientDetail(
@@ -57,6 +62,16 @@ fun PatientScreen(graph: AppGraph) {
             tasks = tasks.filter { it.patientId == patient.id || (it.patientId == null && it.bed == patient.bed && it.name == patient.name) },
             today = today,
             onBack = { selected = null },
+            onComplete = { id -> uiScope.launch { graph.completeTaskFromPatientPage(id); reload() } },
+            onArchive = { pendingArchive = patient },
+            onRestore = {
+                uiScope.launch {
+                    graph.patientStore.restore(patient.id)
+                    selected = null
+                    reload()
+                }
+            },
+            onPurge = { pendingPurge = patient },
         )
         return
     }
@@ -117,6 +132,54 @@ fun PatientScreen(graph: AppGraph) {
                 }
             }
         }
+    }
+
+    pendingArchive?.let { target ->
+        AlertDialog(
+            onDismissRequest = { pendingArchive = null },
+            title = { Text("归档 ${target.bed} 床 ${target.name}？") },
+            text = { Text("归档后移出在院列表，并发一条「整理出院首页」提醒（3 天后失效）。未完成的术后提醒会一起清掉。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    uiScope.launch {
+                        graph.patientStore.archive(target.id, "患者页手动归档", today.toString())
+                        pendingArchive = null
+                        selected = null
+                        reload()
+                    }
+                }) { Text("归档") }
+            },
+            dismissButton = { TextButton(onClick = { pendingArchive = null }) { Text("取消") } },
+        )
+    }
+
+    pendingPurge?.let { target ->
+        val taskCount = tasks.count { it.patientId == target.id }
+        AlertDialog(
+            onDismissRequest = { pendingPurge = null },
+            title = { Text("完成病案首页") },
+            text = {
+                Column {
+                    Text("确认后，这位患者的全部信息将从手机中删除，无法恢复。", fontSize = 13.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Text("· 患者档案 1 份（${target.bed}床 ${target.name}）", fontSize = 12.sp)
+                    Text("· 相关待办 ${taskCount} 条", fontSize = 12.sp)
+                    Text("· 相关事件与记忆一并清除", fontSize = 12.sp)
+                    Text("· 出院首页提醒同时关闭", fontSize = 12.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    uiScope.launch {
+                        graph.purgePatient(target.id)
+                        pendingPurge = null
+                        selected = null
+                        reload()
+                    }
+                }) { Text("确认删除", color = Color(0xFFB3261E)) }
+            },
+            dismissButton = { TextButton(onClick = { pendingPurge = null }) { Text("取消") } },
+        )
     }
 }
 
@@ -246,7 +309,16 @@ private fun metaLine(p: Patient, today: LocalDate, archived: Boolean): String {
 }
 
 @Composable
-private fun PatientDetail(patient: Patient, tasks: List<CareTask>, today: LocalDate, onBack: () -> Unit) {
+private fun PatientDetail(
+    patient: Patient,
+    tasks: List<CareTask>,
+    today: LocalDate,
+    onBack: () -> Unit,
+    onComplete: (String) -> Unit,
+    onArchive: () -> Unit,
+    onRestore: () -> Unit,
+    onPurge: () -> Unit,
+) {
     val gaps = PatientGaps.of(patient, today)
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 18.dp, vertical = 10.dp)) {
@@ -295,13 +367,16 @@ private fun PatientDetail(patient: Patient, tasks: List<CareTask>, today: LocalD
                                 ) { Box(Modifier.size(15.dp)) }
                             }
                             Spacer(Modifier.width(9.dp))
-                            Column {
+                            Column(Modifier.weight(1f)) {
                                 Text(t.item, fontSize = 13.sp)
                                 Text(
                                     (if (t.pushCount > 0) "已推 ${t.pushCount} 次 · " else "") + "截止 ${t.until}",
                                     fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(top = 2.dp),
                                 )
+                            }
+                            TextButton(onClick = { onComplete(t.id) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)) {
+                                Text("已完成", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -313,6 +388,29 @@ private fun PatientDetail(patient: Patient, tasks: List<CareTask>, today: LocalD
                 InfoRow("缺口", if (gaps.isEmpty()) "无" else gaps.joinToString("、"), highlight = gaps.isNotEmpty())
                 patient.surgery?.let { InfoRow("手术", "${it.date} ${it.name}") }
                 InfoRow("编号", patient.id)
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
+                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (patient.stage == PatientStage.ARCHIVED) {
+                OutlinedButton(onClick = onRestore, modifier = Modifier.weight(1f), shape = RoundedCornerShape(11.dp)) {
+                    Text("恢复在院", fontSize = 12.5.sp)
+                }
+                Button(
+                    onClick = onPurge,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(11.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB3261E)),
+                ) { Text("完成病案首页", fontSize = 12.5.sp) }
+            } else {
+                Text("记手术：在对话里说「X 床今天做了…」", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                OutlinedButton(onClick = onArchive, shape = RoundedCornerShape(11.dp)) {
+                    Text("归档", fontSize = 12.5.sp)
+                }
             }
         }
     }

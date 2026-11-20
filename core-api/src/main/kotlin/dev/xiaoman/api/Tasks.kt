@@ -133,6 +133,9 @@ interface TaskStore {
     /** Replaces several tasks; implementations should write the file once. */
     suspend fun updateAll(tasks: List<CareTask>): List<CareTask> = tasks.mapNotNull { update(it) }
 
+    /** 真删除（患者被彻底清除时用），返回删掉的条数。 */
+    suspend fun remove(ids: Set<String>): Int
+
     suspend fun find(id: String): CareTask?
 }
 
