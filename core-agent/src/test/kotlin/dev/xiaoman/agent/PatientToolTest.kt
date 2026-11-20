@@ -99,6 +99,42 @@ class PatientToolTest {
     }
 
     @Test
+    fun surgeryDateSchedulesThePostOpChain() = runTest {
+        val h = Harness()
+        h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx"}""")).reply("好")
+        h.agent.handle("新入 12 床", h.events, h.stop)
+
+        h.chat.tools(
+            ToolCall("c2", AgentTools.PATIENT_UPDATE, """{"bed":"12","surgeryDate":"2026-11-20","surgeryName":"腹腔镜胆囊切除术"}"""),
+        ).reply("排上了")
+        h.agent.handle("12 床今天做了胆囊切除", h.events, h.stop)
+
+        val post = h.tasks.items.filter { it.source == "patient" && it.anchorDate == "2026-11-20" }
+        assertEquals(4, post.size, post.map { it.item }.toString())
+        assertTrue(post.any { it.item.contains("术后第2天") && it.until == "2026-11-23" })
+        assertTrue(post.any { it.item.contains("换药") && it.rule.everyDays == 2 })
+        // 术前检查那条应当自动关掉
+        assertEquals(
+            dev.xiaoman.api.TaskState.DONE,
+            h.tasks.items.single { it.item == "术前检查是否完善" }.state,
+        )
+    }
+
+    @Test
+    fun movingTheSurgeryDateShiftsTheChainInsteadOfDuplicating() = runTest {
+        val h = Harness()
+        h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx","surgeryDate":"2026-11-20"}""")).reply("好")
+        h.agent.handle("12 床今天做了", h.events, h.stop)
+
+        h.chat.tools(ToolCall("c2", AgentTools.PATIENT_UPDATE, """{"bed":"12","surgeryDate":"2026-11-21"}""")).reply("改了")
+        h.agent.handle("手术改到明天", h.events, h.stop)
+
+        val post = h.tasks.items.filter { it.source == "patient" && it.item.contains("术后第") }
+        assertEquals(3, post.size, post.map { "${it.item}@${it.anchorDate}" }.toString())
+        assertTrue(post.all { it.anchorDate == "2026-11-21" })
+    }
+
+    @Test
     fun archiveMovesPatientOutOfTheList() = runTest {
         val h = Harness()
         h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx"}"""))

@@ -76,12 +76,27 @@ object PatientTasks {
         }
     }
 
-    /** 术后日程：第 2/4/6 天开复查血，第 2 天起隔天换药。 */
-    fun postOp(today: LocalDate): List<Pair<Int, String>> = listOf(
-        2 to "开立明日复查血医嘱",
-        4 to "开立明日复查血医嘱",
-        6 to "开立明日复查血医嘱",
+    /** 术后节点：锚在手术日上，手术日一变整体平移。 */
+    data class PlannedPostOp(
+        val item: String,
+        /** 术后第几天开始推 */
+        val offsetDays: Int,
+        /** 术后第几天停止推（含宽限一天，避免关机错过就永远没了） */
+        val untilOffset: Int,
+        /** 间隔天数，换药是 2 */
+        val everyDays: Int = 1,
     )
+
+    fun postOp(patient: Patient): List<PlannedPostOp> {
+        if (patient.surgery == null) return emptyList()
+        if (patient.stage == PatientStage.ARCHIVED || patient.stage == PatientStage.DISCHARGED) return emptyList()
+        return listOf(
+            PlannedPostOp("术后第2天：开立明日复查血医嘱", 2, 3),
+            PlannedPostOp("术后第4天：开立明日复查血医嘱", 4, 5),
+            PlannedPostOp("术后第6天：开立明日复查血医嘱", 6, 7),
+            PlannedPostOp("术后换药（隔天一次）", 2, 14, everyDays = 2),
+        )
+    }
 
     fun postOpDay(patient: Patient, today: LocalDate): Int? = patient.surgery?.date?.toDateOrNull()?.let {
         ChronoUnit.DAYS.between(it, today).toInt().takeIf { d -> d >= 0 }

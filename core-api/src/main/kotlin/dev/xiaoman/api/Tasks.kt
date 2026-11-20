@@ -52,7 +52,11 @@ data class CareTask(
         if (silentDate == today.toString()) return false
         return when (rule.kind) {
             TaskRuleKind.MONTHLY -> rule.days.isEmpty() || today.dayOfMonth in rule.days
-            TaskRuleKind.DAILY -> startDate()?.let { !today.isBefore(it) } ?: false
+            TaskRuleKind.DAILY -> startDate()?.let { start ->
+                if (today.isBefore(start)) return false
+                val every = rule.everyDays.coerceAtLeast(1)
+                every == 1 || (ChronoUnit.DAYS.between(start, today) % every).toInt() == 0
+            } ?: false
         }
     }
 
@@ -84,6 +88,8 @@ data class TaskRule(
     val kind: TaskRuleKind = TaskRuleKind.DAILY,
     /** Days of month for [TaskRuleKind.MONTHLY], e.g. 10, 20, 30. */
     val days: List<Int> = emptyList(),
+    /** 每隔几天推一次（隔天换药 = 2）。1 表示每天。 */
+    val everyDays: Int = 1,
 )
 
 @Serializable

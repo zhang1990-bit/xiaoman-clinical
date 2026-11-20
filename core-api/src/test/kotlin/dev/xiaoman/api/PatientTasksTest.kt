@@ -67,6 +67,49 @@ class PatientTasksTest {
     }
 
     @Test
+    fun postOpScheduleHangsOffTheSurgeryDate() {
+        val p = patient(stage = PatientStage.POSTOP, surgery = Surgery("2026-11-20", "胆囊切除"))
+        val plans = PatientTasks.postOp(p)
+        assertEquals(listOf(2, 4, 6), plans.filter { it.item.contains("复查血") }.map { it.offsetDays })
+        val dressing = plans.single { it.item.contains("换药") }
+        assertEquals(2, dressing.offsetDays)
+        assertEquals(2, dressing.everyDays, "隔天一次")
+    }
+
+    @Test
+    fun noSurgeryMeansNoPostOpSchedule() {
+        assertTrue(PatientTasks.postOp(patient()).isEmpty())
+        assertTrue(PatientTasks.postOp(patient(stage = PatientStage.ARCHIVED, surgery = Surgery("2026-11-18", "x"))).isEmpty())
+    }
+
+    @Test
+    fun everyOtherDayRuleSkipsOddDays() {
+        val start = "2026-11-22"
+        val task = CareTask(
+            id = "po", bed = "12", name = "李xx", patientKey = "李xx", item = "换药",
+            rule = TaskRule(everyDays = 2), anchor = TaskAnchor(AnchorKind.SURGERY, 2),
+            anchorDate = "2026-11-20", until = "2026-12-04", createdAt = start,
+        )
+        assertTrue(task.isDue(LocalDate.parse("2026-11-22")))
+        assertFalse(task.isDue(LocalDate.parse("2026-11-23")))
+        assertTrue(task.isDue(LocalDate.parse("2026-11-24")))
+        assertFalse(task.isDue(LocalDate.parse("2026-11-21")), "手术第二天之前不推")
+    }
+
+    @Test
+    fun labOrderOnlyFiresOnItsOwnDay() {
+        val task = CareTask(
+            id = "po2", bed = "12", name = "李xx", patientKey = "李xx", item = "术后第2天复查血",
+            rule = TaskRule(), anchor = TaskAnchor(AnchorKind.SURGERY, 2),
+            anchorDate = "2026-11-20", until = "2026-11-23", createdAt = "2026-11-20",
+        )
+        assertFalse(task.isDue(LocalDate.parse("2026-11-21")))
+        assertTrue(task.isDue(LocalDate.parse("2026-11-22")))
+        assertTrue(task.isDue(LocalDate.parse("2026-11-23")), "宽限一天，关机也不至于永远错过")
+        assertFalse(task.isDue(LocalDate.parse("2026-11-24")))
+    }
+
+    @Test
     fun extraChecksBecomeTheirOwnReminder() {
         val p = patient(preopExtra = listOf("增强 CT"))
         assertTrue(PatientTasks.desired(p, today).any { it.item == "检查：增强 CT" })

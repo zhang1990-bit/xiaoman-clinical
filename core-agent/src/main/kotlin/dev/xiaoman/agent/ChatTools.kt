@@ -740,6 +740,35 @@ internal class ChatTools(
         open.filter { PatientTasks.satisfied(patient, it.item, today) }.forEach { t ->
             store.update(t.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = "条件已满足"))
         }
+
+        // 术后节点：锚在手术日上。手术日改了，整套日程跟着平移，不重建。
+        val surgery = patient.surgery ?: return
+        val surgeryDay = surgery.date.toDateOrNull() ?: return
+        PatientTasks.postOp(patient).forEach { plan ->
+            val until = surgeryDay.plusDays(plan.untilOffset.toLong()).toString()
+            val anchor = TaskAnchor(AnchorKind.SURGERY, plan.offsetDays)
+            val existing = store.all().firstOrNull {
+                it.state != TaskState.DONE && it.patientId == patient.id &&
+                    it.source == PatientTasks.SOURCE_AUTO && it.item == plan.item
+            }
+            if (existing == null) {
+                store.add(
+                    listOf(
+                        CareTask(
+                            id = "po-${patient.id}-${plan.offsetDays}-${plan.item.hashCode()}",
+                            bed = patient.bed, name = patient.name, patientKey = patient.name,
+                            patientId = patient.id, item = plan.item, note = "自动",
+                            rule = TaskRule(everyDays = plan.everyDays),
+                            anchor = anchor, anchorDate = surgery.date,
+                            state = TaskState.ACTIVE, until = until, createdAt = today.toString(),
+                            source = PatientTasks.SOURCE_AUTO,
+                        ),
+                    ),
+                )
+            } else if (existing.anchorDate != surgery.date || existing.until != until || existing.bed != patient.bed) {
+                store.update(existing.copy(anchorDate = surgery.date, until = until, bed = patient.bed))
+            }
+        }
     }
 
     private suspend fun patientArchive(args: JsonObject): String {
