@@ -454,12 +454,13 @@ internal class ChatTools(
         val store = patients ?: return 0 to 0
         val existing = store.all() + store.archived()
         val byName = existing.groupBy { it.name }
+        val bedOf = { p: Patient -> TaskRoster.normalizeBed(p.bed) }
         var created = 0
         var archived = 0
 
         slots.forEach { slot ->
             val candidates = byName[slot.name].orEmpty()
-            val hit = candidates.firstOrNull { it.bed == slot.bed } ?: candidates.firstOrNull()
+            val hit = candidates.firstOrNull { bedOf(it) == slot.bed } ?: candidates.firstOrNull()
             if (hit == null) {
                 store.upsert(
                     Patient(
@@ -588,7 +589,7 @@ internal class ChatTools(
         val store = patients ?: return error("患者功能没有启用")
         val today = today()
         val idIn = JsonText.string(args, "id")?.trim()
-        val bedIn = JsonText.string(args, "bed")?.trim()
+        val bedIn = JsonText.string(args, "bed")?.trim()?.takeIf { it.isNotEmpty() }?.let { TaskRoster.normalizeBed(it) }
         val existing = idIn?.takeIf { it.isNotEmpty() }?.let { store.find(it) }
             ?: bedIn?.takeIf { it.isNotEmpty() }?.let { store.findByBed(it) }
 

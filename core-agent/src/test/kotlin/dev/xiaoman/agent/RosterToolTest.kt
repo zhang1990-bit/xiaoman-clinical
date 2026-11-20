@@ -103,6 +103,25 @@ class RosterToolTest {
     }
 
     @Test
+    fun dictatingAnExtraBedFindsTheHisRow() = runTest {
+        val h = Harness()
+        // 名单里这人是 A65（HIS 的写法）
+        h.chat.tools(sync("""[{"bed":"A65","name":"赵xx"}]""")).reply("记下了")
+        h.agent.handle("今天的名单", h.events, h.stop)
+
+        // 口述说「加65床」，必须落到同一个患者，而不是再建一个
+        h.chat.tools(
+            ToolCall("c2", AgentTools.PATIENT_UPDATE, """{"bed":"加65床","name":"赵xx","diagnosis":"胆管狭窄"}"""),
+        ).reply("好")
+
+        h.agent.handle("加65床赵xx 是胆管狭窄", h.events, h.stop)
+
+        assertEquals(1, h.patients.items.size)
+        assertEquals("A65", h.patients.items.single().bed)
+        assertEquals("胆管狭窄", h.patients.items.single().diagnosis)
+    }
+
+    @Test
     fun secondImportArchivesWhoDisappeared() = runTest {
         val h = Harness()
         h.patients.items += dev.xiaoman.api.Patient(

@@ -39,9 +39,24 @@ data class RosterReport(
 
 object TaskRoster {
     /** `12` / `12床` / `012号` / ` 12a ` all become `12` / `12A`. */
+    /**
+     * 床号归一化。加床有三种写法，必须落到同一个键上：
+     *
+     * `A65`（HIS 里就这么印）、`+65`、`加65`、`加65床` → 全部 `A65`
+     *
+     * 否则你说「加65床」时，系统会以为来了个新病人，跟 HIS 表里的 A65 对不上。
+     */
     fun normalizeBed(raw: String): String {
-        val kept = raw.filter { it in '0'..'9' || it in 'a'..'z' || it in 'A'..'Z' }.uppercase()
-        if (kept.isEmpty()) return raw.trim()
+        val cleaned = raw.trim().replace("床", "").trim()
+        if (cleaned.isEmpty()) return ""
+        val extraBed = cleaned.first().let { it == '+' || it == '＋' || it == '加' } ||
+            (cleaned.length > 1 && (cleaned.first() == 'A' || cleaned.first() == 'a') && !cleaned[1].isLetter())
+        if (extraBed) {
+            val digits = cleaned.drop(1).filter { it in '0'..'9' }
+            if (digits.isNotEmpty()) return "A" + digits.trimStart('0').ifEmpty { "0" }
+        }
+        val kept = cleaned.filter { it in '0'..'9' || it in 'a'..'z' || it in 'A'..'Z' }.uppercase()
+        if (kept.isEmpty()) return cleaned
         val digits = kept.takeWhile { it in '0'..'9' }
         return if (digits.isEmpty()) kept else digits.trimStart('0').ifEmpty { "0" } + kept.drop(digits.length)
     }

@@ -24,6 +24,17 @@ class TaskRosterTest {
         assertEquals("12", TaskRoster.normalizeBed(" 012号"))
         assertEquals("12A", TaskRoster.normalizeBed("12a"))
         assertEquals("0", TaskRoster.normalizeBed("0"))
+        // 加床：HIS 印 A65，口述说「加65床」「+65」，必须落到同一个键
+        assertEquals("A65", TaskRoster.normalizeBed("A65"))
+        assertEquals("A65", TaskRoster.normalizeBed("a65"))
+        assertEquals("A65", TaskRoster.normalizeBed("+65"))
+        assertEquals("A65", TaskRoster.normalizeBed("加65"))
+        assertEquals("A65", TaskRoster.normalizeBed("加65床"))
+        assertEquals("A65", TaskRoster.normalizeBed(" A065 "))
+        assertEquals("A9", TaskRoster.normalizeBed("加9床"))
+        // 普通床不能被误判成加床
+        assertEquals("65", TaskRoster.normalizeBed("65"))
+        assertEquals("12A", TaskRoster.normalizeBed("12A"))
     }
 
     @Test
