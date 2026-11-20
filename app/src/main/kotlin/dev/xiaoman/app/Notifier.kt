@@ -116,28 +116,18 @@ class Notifier(private val context: Context) {
     fun showDigest(tasks: List<CareTask>, today: LocalDate, test: Boolean = false): Boolean {
         if (!allowed()) return false
         if (tasks.isEmpty() && !test) return false
-        val empty = context.getString(R.string.digest_test_empty)
-        val lines = if (tasks.isEmpty()) {
-            empty
-        } else {
-            tasks.joinToString("\n") { t -> "${t.bed}床 ${t.name}｜${t.item}（第${t.dayNumber(today)}天）" }
-        }
-        val preview = if (tasks.isEmpty()) {
-            empty
-        } else {
-            tasks.take(3).joinToString("；") { "${it.bed}床${it.item}" } +
-                if (tasks.size > 3) " 等 ${tasks.size} 条" else ""
-        }
+        // 锁屏/通知栏不写床号和事项：一张手机放在桌上，别人一眼就能看完整个病房。
+        val body = if (tasks.isEmpty()) context.getString(R.string.digest_test_empty) else context.getString(R.string.digest_body)
         val title = if (test) {
-            context.getString(R.string.digest_title_test, tasks.size)
+            context.getString(R.string.digest_title_test)
         } else {
-            context.getString(R.string.digest_title, tasks.size)
+            context.getString(R.string.digest_title)
         }
         val notification = NotificationCompat.Builder(context, CHANNEL_REMINDERS)
             .setSmallIcon(R.drawable.ic_stat_xiaoman)
             .setContentTitle(title)
-            .setContentText(preview)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(lines))
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
