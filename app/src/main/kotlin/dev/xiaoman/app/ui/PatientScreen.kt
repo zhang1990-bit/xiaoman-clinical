@@ -1,5 +1,6 @@
 package dev.xiaoman.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -55,6 +56,9 @@ fun PatientScreen(graph: AppGraph) {
     LaunchedEffect(Unit) { reload() }
     var pendingPurge by remember { mutableStateOf<Patient?>(null) }
     var pendingArchive by remember { mutableStateOf<Patient?>(null) }
+
+    // 侧滑返回：先退回列表，别把整个 App 关掉
+    BackHandler(enabled = selected != null) { selected = null }
 
     selected?.let { patient ->
         PatientDetail(

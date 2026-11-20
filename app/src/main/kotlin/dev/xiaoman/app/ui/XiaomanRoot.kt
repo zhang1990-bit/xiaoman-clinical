@@ -15,7 +15,9 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.NavigationBar
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -45,6 +47,8 @@ enum class Tab(@StringRes val label: Int, val icon: ImageVector) {
 fun XiaomanRoot(graph: AppGraph) {
     var tab by rememberSaveable { mutableStateOf(Tab.CHAT) }
     val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    // 不在聊天页时，返回手势回聊天页；在聊天页才让系统退到桌面
+    BackHandler(enabled = tab != Tab.CHAT) { tab = Tab.CHAT }
     Scaffold(
         bottomBar = {
             if (!keyboardOpen) NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
