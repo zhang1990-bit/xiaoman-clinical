@@ -21,6 +21,8 @@ data class CareTask(
     val patientKey: String,
     /** 患者档案 id（p-0007）。P0 起逐步回填；为空时详情页按床号兜底匹配。 */
     val patientId: String? = null,
+    /** manual = 用户口述产生；patient = 由患者阶段自动生成（可随条件满足自动关闭）。 */
+    val source: String? = null,
     /** What to confirm, e.g. 术前检查 / 会诊结果 / 出院首页. */
     val item: String,
     /** The user's own words kept as-is; never expanded into advice. */

@@ -53,6 +53,52 @@ class PatientToolTest {
     }
 
     @Test
+    fun newPatientGetsPreopAndConsultReminders() = runTest {
+        val h = Harness()
+        h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx"}""")).reply("建好了")
+
+        h.agent.handle("新入 12 床李xx", h.events, h.stop)
+
+        val auto = h.tasks.items.filter { it.source == "patient" }.map { it.item }
+        assertTrue("术前检查是否完善" in auto, auto.toString())
+        assertTrue("是否需请会诊" in auto, auto.toString())
+    }
+
+    @Test
+    fun confirmingPreopClosesTheReminder() = runTest {
+        val h = Harness()
+        h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx"}"""))
+            .reply("建好了")
+        h.chat.tools(ToolCall("c2", AgentTools.PATIENT_UPDATE, """{"bed":"12","preopDone":true}"""))
+            .reply("好")
+
+        h.agent.handle("新入 12 床李xx", h.events, h.stop)
+        h.agent.handle("12 床检查齐了", h.events, h.stop)
+
+        val preop = h.tasks.items.first { it.item == "术前检查是否完善" }
+        assertEquals(dev.xiaoman.api.TaskState.DONE, preop.state)
+    }
+
+    @Test
+    fun admittingFromAPhotoCreatesSeveralAndSkipsDuplicates() = runTest {
+        val h = Harness()
+        h.chat.tools(
+            ToolCall("c1", AgentTools.PATIENT_ADMIT, """{"beds":[{"bed":"12","name":"李xx","diagnosis":"胆囊结石"},{"bed":"A65","name":"赵xx"}]}"""),
+        ).reply("两人")
+        h.agent.handle("今天新入这两个", h.events, h.stop)
+
+        assertEquals(2, h.patients.all().size)
+
+        h.chat.tools(
+            ToolCall("c2", AgentTools.PATIENT_ADMIT, """{"beds":[{"bed":"加65床","name":"赵xx","diagnosis":"胆管狭窄"}]}"""),
+        ).reply("已存在")
+        h.agent.handle("补一张", h.events, h.stop)
+
+        assertEquals(2, h.patients.all().size)
+        assertEquals("胆管狭窄", h.patients.all().first { it.bed == "A65" }.diagnosis)
+    }
+
+    @Test
     fun archiveMovesPatientOutOfTheList() = runTest {
         val h = Harness()
         h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx"}"""))

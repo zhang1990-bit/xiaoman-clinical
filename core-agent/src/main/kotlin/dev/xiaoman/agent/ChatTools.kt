@@ -14,6 +14,7 @@ import dev.xiaoman.api.PatientRoster
 import dev.xiaoman.api.PatientSlot
 import dev.xiaoman.api.PatientStage
 import dev.xiaoman.api.PatientStore
+import dev.xiaoman.api.PatientTasks
 import dev.xiaoman.api.KIND_KEY
 import dev.xiaoman.api.RecordStore
 import dev.xiaoman.api.VALID_UNTIL_KEY
@@ -96,6 +97,7 @@ internal class ChatTools(
             AgentTools.PATIENT_LIST -> patientList(args)
             AgentTools.PATIENT_UPDATE -> patientUpdate(args)
             AgentTools.PATIENT_ARCHIVE -> patientArchive(args)
+            AgentTools.PATIENT_ADMIT -> patientAdmit(args)
             AgentTools.PHONE_TASK -> if (phoneTasks) phone(args) else error("这里不能操作手机，请用其他工具或告诉用户自己操作")
             else -> external(call, taskId, emit)
         }
@@ -462,7 +464,7 @@ internal class ChatTools(
             val candidates = byName[slot.name].orEmpty()
             val hit = candidates.firstOrNull { bedOf(it) == slot.bed } ?: candidates.firstOrNull()
             if (hit == null) {
-                store.upsert(
+                val fresh = store.upsert(
                     Patient(
                         id = nextPatientId(store),
                         name = slot.name,
@@ -473,6 +475,7 @@ internal class ChatTools(
                         lastSeenOnRoster = today.toString(),
                     ),
                 )
+                syncPatientTasks(fresh, today)
                 created++
             } else {
                 var next = hit.copy(lastSeenOnRoster = today.toString(), updatedAt = today.toString())
@@ -480,7 +483,7 @@ internal class ChatTools(
                     next = next.copy(stage = PatientStage.ADMITTED, archivedOn = null, archiveReason = null)
                 }
                 if (next.bed != slot.bed) next = next.movedTo(slot.bed, today.toString())
-                store.upsert(next)
+                syncPatientTasks(store.upsert(next), today)
             }
         }
 
@@ -646,6 +649,7 @@ internal class ChatTools(
                 "dictation",
             ),
         )
+        syncPatientTasks(saved, today)
         val gaps = PatientGaps.of(saved, today)
         return buildJsonObject {
             put("ok", true)
@@ -655,6 +659,87 @@ internal class ChatTools(
             putJsonArray("gapDetail") { gaps.forEach { add(it) } }
             put("created", existing == null)
         }.toString()
+    }
+
+    /** 入院患者照片：一人一条，已存在的只补诊断，不重复建。 */
+    private suspend fun patientAdmit(args: JsonObject): String {
+        val store = patients ?: return error("患者功能没有启用")
+        val today = today()
+        val rows = objects(args, "beds").mapNotNull { o ->
+            val bed = JsonText.string(o, "bed")?.trim()?.takeIf { it.isNotEmpty() }
+                ?.let { TaskRoster.normalizeBed(it) } ?: return@mapNotNull null
+            val name = JsonText.string(o, "name")?.trim()?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            Triple(bed, name, JsonText.string(o, "diagnosis")?.trim().orEmpty())
+        }
+        if (rows.isEmpty()) throw ToolArgumentException("beds 为空，没有读到床号和姓名")
+
+        var created = 0
+        var updated = 0
+        rows.forEach { (bed, name, diagnosis) ->
+            val hit = store.findByBed(bed)?.takeIf { it.name == name }
+                ?: (store.all() + store.archived()).firstOrNull { it.name == name }
+            val saved = if (hit == null) {
+                created++
+                store.upsert(
+                    Patient(
+                        id = nextPatientId(store), name = name, bed = bed,
+                        diagnosis = diagnosis, admittedOn = today.toString(),
+                        createdAt = today.toString(), updatedAt = today.toString(),
+                        lastSeenOnRoster = null,
+                    ),
+                )
+            } else {
+                updated++
+                var next = hit.copy(
+                    name = name,
+                    diagnosis = diagnosis.ifBlank { hit.diagnosis },
+                    lastSeenOnRoster = today.toString(),
+                    updatedAt = today.toString(),
+                )
+                if (next.stage == PatientStage.ARCHIVED) next = next.copy(stage = PatientStage.ADMITTED, archivedOn = null, archiveReason = null)
+                if (next.bed != bed) next = next.movedTo(bed, today.toString())
+                store.upsert(next)
+            }
+            syncPatientTasks(saved, today)
+        }
+        store.log(PatientEvent(java.time.LocalDateTime.now().withNano(0).toString(), "patients.admitted", "-", "新建 $created，更新 $updated", "photo"))
+        return buildJsonObject {
+            put("ok", true)
+            put("created", created)
+            put("updated", updated)
+            put("inHospital", store.all().size)
+            put("hint", "告诉用户新入几人、现在在院几人；患者页会自动出现")
+        }.toString()
+    }
+
+    /**
+     * 按患者当前阶段补齐自动提醒。幂等：同一事项已存在就不再建；条件满足的自动关闭。
+     * 只碰 [PatientTasks.SOURCE_AUTO] 的任务，用户自己口述的提醒一条都不动。
+     */
+    private suspend fun syncPatientTasks(patient: Patient, today: LocalDate) {
+        val store = tasks ?: return
+        val open = store.all().filter {
+            it.state != TaskState.DONE && it.patientId == patient.id && it.source == PatientTasks.SOURCE_AUTO
+        }
+        val desired = PatientTasks.desired(patient, today)
+        val toCreate = desired.filter { d -> open.none { it.item == d.item } }
+        if (toCreate.isNotEmpty()) {
+            store.add(
+                toCreate.map { d ->
+                    CareTask(
+                        id = "pa-${patient.id}-${today}-${d.item.hashCode()}",
+                        bed = patient.bed, name = patient.name, patientKey = patient.name,
+                        patientId = patient.id, item = d.item, note = "自动",
+                        rule = TaskRule(), state = TaskState.ACTIVE,
+                        until = d.until, createdAt = today.toString(),
+                        source = PatientTasks.SOURCE_AUTO,
+                    )
+                },
+            )
+        }
+        open.filter { PatientTasks.satisfied(patient, it.item, today) }.forEach { t ->
+            store.update(t.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = "条件已满足"))
+        }
     }
 
     private suspend fun patientArchive(args: JsonObject): String {

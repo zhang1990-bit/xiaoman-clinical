@@ -28,6 +28,7 @@ object AgentTools {
     const val PATIENT_LIST = "patient_list"
     const val PATIENT_UPDATE = "patient_update"
     const val PATIENT_ARCHIVE = "patient_archive"
+    const val PATIENT_ADMIT = "patient_admit"
     const val RECORD_LIST = "record_list"
     const val RECORD_READ = "record_read"
 
@@ -222,6 +223,23 @@ object AgentTools {
                 "tumor" to str("填 true/false，是否肿瘤（决定要不要推 MDT）"),
                 "mdt" to str("MDT 状态：待排 / 已排 11-22 / 已讨论"),
                 "preopDone" to str("术前检查是否完善，填 true 关闭该提醒"),
+            ),
+        ),
+        ToolSpec(
+            PATIENT_ADMIT,
+            "把一张「今日入院患者」照片里读到的人批量建档。已存在（同名+同床）的只补诊断，不重复建。"
+                + "只传床号和姓名，不要传病案号、登记号、年龄。",
+            schema(
+                listOf("beds"),
+                "beds" to arr(
+                    "入院患者，一人一条",
+                    obj(
+                        "床号 + 姓名",
+                        "bed" to str("床号，如 12 或 加65"),
+                        "name" to str("姓名"),
+                        "diagnosis" to str("诊断，可选"),
+                    ),
+                ),
             ),
         ),
         ToolSpec(

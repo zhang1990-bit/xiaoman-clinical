@@ -326,7 +326,9 @@ class XiaomanAgent(
             AgentTools.TASK_ROSTER,
         )
 
-        private val PATIENT_TOOLS = setOf(AgentTools.PATIENT_LIST, AgentTools.PATIENT_UPDATE, AgentTools.PATIENT_ARCHIVE)
+        private val PATIENT_TOOLS = setOf(
+            AgentTools.PATIENT_LIST, AgentTools.PATIENT_UPDATE, AgentTools.PATIENT_ARCHIVE, AgentTools.PATIENT_ADMIT,
+        )
 
         private val RECORD_TOOLS = setOf(
             AgentTools.RECORD_SAVE, AgentTools.TEMPLATE_READ, AgentTools.TEMPLATE_SAVE,

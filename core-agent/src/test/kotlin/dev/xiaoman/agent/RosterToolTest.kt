@@ -27,7 +27,7 @@ class RosterToolTest {
 
         h.agent.handle("今天的名单", h.events, h.stop)
 
-        assertEquals("15", h.tasks.items.single().bed)
+        assertEquals("15", h.tasks.items.single { it.id.startsWith("t-") }.bed)
         assertEquals(listOf("李xx"), h.roster.items.map { it.name })
         val tool = h.chat.requests[1].messages.last().text
         assertTrue("\"saved\":1" in tool, tool)
@@ -44,7 +44,7 @@ class RosterToolTest {
 
         h.agent.handle("核对一下", h.events, h.stop)
 
-        assertEquals("12", h.tasks.items.single().bed)
+        assertEquals("12", h.tasks.items.single { it.id.startsWith("t-") }.bed)
         assertTrue("待改" in h.chat.requests[1].messages.last().text)
     }
 
@@ -71,7 +71,7 @@ class RosterToolTest {
 
         h.agent.handle("今天的名单", h.events, h.stop)
 
-        assertEquals("8", h.tasks.items.single().bed)
+        assertEquals("8", h.tasks.items.single { it.id.startsWith("t-") }.bed)
         val tool = h.chat.requests[1].messages.last().text
         assertTrue("同床不同姓｜8床" in tool, tool)
     }
