@@ -21,7 +21,11 @@ import dev.xiaoman.api.ModelRole
 import dev.xiaoman.api.Note
 import dev.xiaoman.api.TaskStore
 import dev.xiaoman.api.Observation
+import dev.xiaoman.api.Patient
+import dev.xiaoman.api.PatientEvent
 import dev.xiaoman.api.PatientSlot
+import dev.xiaoman.api.PatientStage
+import dev.xiaoman.api.PatientStore
 import dev.xiaoman.api.RecordStore
 import dev.xiaoman.api.RosterStore
 import dev.xiaoman.api.ReminderScheduler
@@ -231,6 +235,45 @@ class FakeRecordStore : RecordStore {
     }
 }
 
+/** In-memory patient store. */
+class FakePatientStore : PatientStore {
+    val items = mutableListOf<Patient>()
+    val events = mutableListOf<PatientEvent>()
+
+    override suspend fun all(): List<Patient> = items.filter { it.stage != PatientStage.ARCHIVED }
+    override suspend fun archived(): List<Patient> = items.filter { it.stage == PatientStage.ARCHIVED }
+    override suspend fun find(id: String): Patient? = items.firstOrNull { it.id == id }
+    override suspend fun findByBed(bed: String): Patient? =
+        items.firstOrNull { it.stage != PatientStage.ARCHIVED && it.bed == bed }
+
+    override suspend fun upsert(patient: Patient): Patient {
+        items.removeAll { it.id == patient.id }
+        items += patient
+        return patient
+    }
+
+    override suspend fun archive(id: String, reason: String, on: String): Patient? {
+        val index = items.indexOfFirst { it.id == id }
+        if (index < 0) return null
+        items[index] = items[index].copy(stage = PatientStage.ARCHIVED, archivedOn = on, archiveReason = reason)
+        return items[index]
+    }
+
+    override suspend fun restore(id: String): Patient? {
+        val index = items.indexOfFirst { it.id == id }
+        if (index < 0) return null
+        items[index] = items[index].copy(stage = PatientStage.POSTOP, archivedOn = null, archiveReason = null)
+        return items[index]
+    }
+
+    override suspend fun purge(id: String): Boolean = items.removeAll { it.id == id }
+
+    override suspend fun events(patientId: String?): List<PatientEvent> =
+        events.filter { patientId == null || it.patientId == patientId }
+
+    override suspend fun log(event: PatientEvent) { events += event }
+}
+
 /** Wires a [XiaomanAgent] with fakes; tests tweak the parts they care about. */
 class Harness(
     val chat: ScriptedLlm = ScriptedLlm(ModelRole.CHAT),
@@ -246,11 +289,12 @@ class Harness(
     val tasks: FakeTaskStore = FakeTaskStore(),
     val roster: FakeRosterStore = FakeRosterStore(),
     val records: FakeRecordStore = FakeRecordStore(),
+    val patients: FakePatientStore = FakePatientStore(),
 ) {
     private var ids = 0
     val agent = XiaomanAgent(
         chat, operator, device, memory, skills, sentinel, users, reminders, config,
-        clock = clock, idFactory = { "t${++ids}" }, tasks = tasks, roster = roster, records = records,
+        clock = clock, idFactory = { "t${++ids}" }, tasks = tasks, roster = roster, records = records, patients = patients,
     )
     val events = Events()
     val stop = Stop()

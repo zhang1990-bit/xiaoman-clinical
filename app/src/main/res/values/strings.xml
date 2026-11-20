@@ -4,6 +4,7 @@
 
     <!-- Navigation -->
     <string name="nav_chat">聊天</string>
+    <string name="nav_patients">患者</string>
     <string name="nav_skills">技能</string>
     <string name="nav_memory">记忆</string>
     <string name="nav_settings">设置</string>

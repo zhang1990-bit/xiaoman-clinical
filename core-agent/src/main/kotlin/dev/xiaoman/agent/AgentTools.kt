@@ -25,6 +25,9 @@ object AgentTools {
     const val RECORD_SAVE = "record_save"
     const val TEMPLATE_READ = "template_read"
     const val TEMPLATE_SAVE = "template_save"
+    const val PATIENT_LIST = "patient_list"
+    const val PATIENT_UPDATE = "patient_update"
+    const val PATIENT_ARCHIVE = "patient_archive"
     const val RECORD_LIST = "record_list"
     const val RECORD_READ = "record_read"
 
@@ -195,6 +198,41 @@ object AgentTools {
                 "name" to str("术式名，如 解剖性肝切除；就是文件名"),
                 "content" to str("模板正文（markdown），不要带 frontmatter，工具会自己加"),
                 "aliases" to str("可选，别名，逗号分隔，如 LC,胆囊切除,腹腔镜胆囊切除术"),
+            ),
+        ),
+        ToolSpec(
+            PATIENT_LIST,
+            "列出患者。默认列在院患者（含术前、术后），说「归档的」时列已归档的。"
+                + "每行带 id、床号、姓名、阶段、诊断、缺口数，缺口明细用 patient_get 或直接问。",
+            schema(emptyList(), "scope" to str("留空=在院；填「归档」=已归档")),
+        ),
+        ToolSpec(
+            PATIENT_UPDATE,
+            "新建或更新一位患者。按 id 或床号定位；找不到且有姓名+床号时才新建。"
+                + "用户口述「12床今天做了胆囊切除」「19床是肿瘤，要上MDT」「检查齐了」时用这个。",
+            schema(
+                emptyList(),
+                "id" to str("患者 id，如 p-0007；不知道就传床号"),
+                "bed" to str("床号，如 12"),
+                "name" to str("姓名（新建时必填）"),
+                "diagnosis" to str("诊断"),
+                "stage" to str("阶段：admitted / preop / postop"),
+                "surgeryDate" to str("手术日期 yyyy-MM-dd，填了自动进术后"),
+                "surgeryName" to str("术式"),
+                "tumor" to str("填 true/false，是否肿瘤（决定要不要推 MDT）"),
+                "mdt" to str("MDT 状态：待排 / 已排 11-22 / 已讨论"),
+                "preopDone" to str("术前检查是否完善，填 true 关闭该提醒"),
+            ),
+        ),
+        ToolSpec(
+            PATIENT_ARCHIVE,
+            "把患者移出在院列表（归档）。查房单里没再出现、或用户说「X 床出院了」时用。"
+                + "归档后默认隐藏，可恢复。",
+            schema(
+                emptyList(),
+                "id" to str("患者 id"),
+                "bed" to str("床号"),
+                "reason" to str("归档原因，如 出院 / 名单中未出现"),
             ),
         ),
         ToolSpec(

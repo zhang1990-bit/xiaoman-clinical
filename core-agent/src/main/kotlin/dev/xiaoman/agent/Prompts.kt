@@ -28,6 +28,22 @@ object Prompts {
 - 给用户的结果用简短中文，不要编造结果，以工具返回为准。"""
 
     const val SKILLS_HEADER = "## 可用技能（phone_task 的 skill 参数）"
+    const val PATIENTS_HEADER = "## 在院患者"
+
+    /** 每轮注入在院名单，避免"我管着几个病人"要靠翻对话。 */
+    fun patientsSection(all: List<dev.xiaoman.api.Patient>, today: java.time.LocalDate, limit: Int): String = buildString {
+        append(PATIENTS_HEADER).append("（共 ").append(all.size).append(" 人）\n")
+        all.take(limit).forEach { p ->
+            val gaps = dev.xiaoman.api.PatientGaps.of(p, today)
+            append("- ").append(p.id).append(' ').append(p.bed).append("床 ").append(p.name)
+                .append("｜").append(p.stageLabel(today))
+            if (p.diagnosis.isNotBlank()) append("｜").append(p.diagnosis)
+            if (gaps.isNotEmpty()) append("｜缺 ").append(gaps.size).append("：").append(gaps.joinToString("、"))
+            append('\n')
+        }
+        if (all.size > limit) append("- ……还有 ").append(all.size - limit).append(" 人，用 patient_list 查\n")
+    }
+
     const val RECORDS_HEADER = "## 手机里已生成的手术记录"
 
     /** 记忆条目前面的层级标记，让模型知道哪些是长期偏好、哪些会过期。 */

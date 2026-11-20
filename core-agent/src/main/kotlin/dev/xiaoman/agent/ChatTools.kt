@@ -7,14 +7,20 @@ import dev.xiaoman.api.CareTask
 import dev.xiaoman.api.MemoryStore
 import dev.xiaoman.api.Note
 import dev.xiaoman.api.Observation
+import dev.xiaoman.api.Patient
+import dev.xiaoman.api.PatientEvent
+import dev.xiaoman.api.PatientGaps
 import dev.xiaoman.api.PatientRoster
 import dev.xiaoman.api.PatientSlot
+import dev.xiaoman.api.PatientStage
+import dev.xiaoman.api.PatientStore
 import dev.xiaoman.api.KIND_KEY
 import dev.xiaoman.api.RecordStore
 import dev.xiaoman.api.VALID_UNTIL_KEY
 import dev.xiaoman.api.Relation
 import dev.xiaoman.api.ReminderScheduler
 import dev.xiaoman.api.RosterStore
+import dev.xiaoman.api.Surgery
 import dev.xiaoman.api.Skill
 import dev.xiaoman.api.SkillRepository
 import dev.xiaoman.api.TaskAnchor
@@ -65,6 +71,8 @@ internal class ChatTools(
     private val roster: RosterStore? = null,
     /** Generated records and the user's templates; null hides record_save / template_read. */
     private val records: RecordStore? = null,
+    /** 患者档案；null 时不提供 patient_* 三个工具。 */
+    private val patients: PatientStore? = null,
 ) {
     suspend fun execute(call: ToolCall, taskId: String, emit: (AgentEvent) -> Unit): String = try {
         val args = parseArgs(call.argumentsJson)
@@ -85,6 +93,9 @@ internal class ChatTools(
             AgentTools.TEMPLATE_SAVE -> templateSave(args)
             AgentTools.RECORD_LIST -> recordList()
             AgentTools.RECORD_READ -> recordRead(args)
+            AgentTools.PATIENT_LIST -> patientList(args)
+            AgentTools.PATIENT_UPDATE -> patientUpdate(args)
+            AgentTools.PATIENT_ARCHIVE -> patientArchive(args)
             AgentTools.PHONE_TASK -> if (phoneTasks) phone(args) else error("这里不能操作手机，请用其他工具或告诉用户自己操作")
             else -> external(call, taskId, emit)
         }
@@ -487,6 +498,131 @@ internal class ChatTools(
             put("aliases", aliases.size)
             put("hint", "告诉用户已归档，并说明以后按哪个术式名/别名会命中这份模板")
         }.toString()
+    }
+
+    // ---------- 患者 ----------
+
+    private suspend fun patientList(args: JsonObject): String {
+        val store = patients ?: return error("患者功能没有启用")
+        val archived = JsonText.string(args, "scope")?.contains("归档") == true
+        val list = if (archived) store.archived() else store.all()
+        val today = today()
+        return buildJsonObject {
+            put("ok", true)
+            put("scope", if (archived) "archived" else "inHospital")
+            put("count", list.size)
+            putJsonArray("patients") {
+                list.forEach { p ->
+                    val gaps = PatientGaps.of(p, today)
+                    addJsonObject {
+                        put("id", p.id)
+                        put("bed", p.bed)
+                        put("name", p.name)
+                        put("stage", p.stageLabel(today))
+                        put("diagnosis", p.diagnosis)
+                        put("gaps", gaps.size)
+                        put("line", "${p.bed}床 ${p.name}｜${p.stageLabel(today)}｜${p.diagnosis}｜缺 ${gaps.size}")
+                    }
+                }
+            }
+            put("today", today.toString())
+        }.toString()
+    }
+
+    private suspend fun patientUpdate(args: JsonObject): String {
+        val store = patients ?: return error("患者功能没有启用")
+        val today = today()
+        val idIn = JsonText.string(args, "id")?.trim()
+        val bedIn = JsonText.string(args, "bed")?.trim()
+        val existing = idIn?.takeIf { it.isNotEmpty() }?.let { store.find(it) }
+            ?: bedIn?.takeIf { it.isNotEmpty() }?.let { store.findByBed(it) }
+
+        val name = JsonText.string(args, "name")?.trim()
+        var next = existing ?: run {
+            if (name.isNullOrEmpty() || bedIn.isNullOrEmpty()) {
+                throw ToolArgumentException("找不到这个患者；新建需要同时给 bed 和 name")
+            }
+            Patient(
+                id = nextPatientId(store),
+                name = name,
+                bed = bedIn,
+                admittedOn = today.toString(),
+                createdAt = today.toString(),
+                updatedAt = today.toString(),
+                lastSeenOnRoster = today.toString(),
+            )
+        }
+        name?.takeIf { it.isNotEmpty() }?.let { next = next.copy(name = it) }
+        bedIn?.takeIf { it.isNotEmpty() && it != next.bed }?.let { next = next.movedTo(it, today.toString()) }
+        JsonText.string(args, "diagnosis")?.let { next = next.copy(diagnosis = it) }
+        (args["tumor"] as? JsonPrimitive)?.let { p ->
+            (p.booleanOrNull ?: (p.content == "是")) .let { next = next.copy(tumor = it) }
+        }
+        JsonText.string(args, "mdt")?.let { next = next.copy(mdt = it) }
+        (args["preopDone"] as? JsonPrimitive)?.let { p ->
+            (p.booleanOrNull ?: (p.content == "是")).let { next = next.copy(preopDone = it) }
+        }
+        val surgeryDate = JsonText.string(args, "surgeryDate")?.takeIf { it.length >= 8 }
+        if (surgeryDate != null) {
+            val surgeryName = JsonText.string(args, "surgeryName") ?: next.surgery?.name.orEmpty()
+            next = next.copy(
+                surgery = Surgery(surgeryDate, surgeryName, next.surgery?.recordId),
+                stage = PatientStage.POSTOP,
+                preopDone = true,
+            )
+        }
+        JsonText.string(args, "stage")?.let { raw ->
+            when (raw.lowercase()) {
+                "admitted", "入院" -> next = next.copy(stage = PatientStage.ADMITTED)
+                "preop", "术前" -> next = next.copy(stage = PatientStage.PREOP)
+                "postop", "术后" -> next = next.copy(stage = PatientStage.POSTOP)
+            }
+        }
+        next = next.copy(updatedAt = today.toString())
+        val saved = store.upsert(next)
+        store.log(
+            PatientEvent(
+                java.time.LocalDateTime.now().withNano(0).toString(),
+                if (existing == null) "patient.created" else "patient.updated",
+                saved.id,
+                listOfNotNull(name, bedIn, surgeryDate).joinToString(" "),
+                "dictation",
+            ),
+        )
+        val gaps = PatientGaps.of(saved, today)
+        return buildJsonObject {
+            put("ok", true)
+            put("id", saved.id)
+            put("line", "${saved.bed}床 ${saved.name}｜${saved.stageLabel(today)}｜${saved.diagnosis}")
+            put("gaps", gaps.size)
+            putJsonArray("gapDetail") { gaps.forEach { add(it) } }
+            put("created", existing == null)
+        }.toString()
+    }
+
+    private suspend fun patientArchive(args: JsonObject): String {
+        val store = patients ?: return error("患者功能没有启用")
+        val today = today()
+        val target = JsonText.string(args, "id")?.trim()?.takeIf { it.isNotEmpty() }?.let { store.find(it) }
+            ?: JsonText.string(args, "bed")?.trim()?.takeIf { it.isNotEmpty() }?.let { store.findByBed(it) }
+            ?: return error("找不到这个患者，先用 patient_list 看 id")
+        val reason = JsonText.string(args, "reason")?.trim().orEmpty().ifEmpty { "手动归档" }
+        val archived = store.archive(target.id, reason, today.toString())
+            ?: return error("归档失败：${target.id}")
+        store.log(PatientEvent(java.time.LocalDateTime.now().withNano(0).toString(), "patient.archived", archived.id, reason, "manual"))
+        return buildJsonObject {
+            put("ok", true)
+            put("id", archived.id)
+            put("line", "${archived.bed}床 ${archived.name} 已归档（$reason）")
+            put("hint", "归档后可恢复；如需彻底删除要用「完成病案首页」")
+        }.toString()
+    }
+
+    private suspend fun nextPatientId(store: PatientStore): String {
+        val used = (store.all() + store.archived()).mapNotNull {
+            it.id.removePrefix("p-").toIntOrNull()
+        }
+        return "p-" + ((used.maxOrNull() ?: 0) + 1).toString().padStart(4, '0')
     }
 
     private suspend fun recordList(): String {

@@ -19,6 +19,8 @@ data class CareTask(
     val name: String,
     /** Stable patient key, default is the name; a bed move never changes it. */
     val patientKey: String,
+    /** 患者档案 id（p-0007）。P0 起逐步回填；为空时详情页按床号兜底匹配。 */
+    val patientId: String? = null,
     /** What to confirm, e.g. 术前检查 / 会诊结果 / 出院首页. */
     val item: String,
     /** The user's own words kept as-is; never expanded into advice. */

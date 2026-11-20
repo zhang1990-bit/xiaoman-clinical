@@ -17,6 +17,8 @@ import dev.xiaoman.api.MemoryStore
 import dev.xiaoman.api.Note
 import dev.xiaoman.api.Observation
 import dev.xiaoman.api.ReminderScheduler
+import dev.xiaoman.api.PatientGaps
+import dev.xiaoman.api.PatientStore
 import dev.xiaoman.api.RecordStore
 import dev.xiaoman.api.RosterStore
 import dev.xiaoman.api.Sentinel
@@ -58,6 +60,8 @@ class XiaomanAgent(
     private val roster: RosterStore? = null,
     /** Generated TXT documents and templates; null hides record_save / template_read. */
     private val records: RecordStore? = null,
+    /** 患者档案；null 时不提供 patient_* 工具，也不注入在院患者摘要。 */
+    private val patients: PatientStore? = null,
 ) : Agent {
     private val loop = OperatorLoop(operator, device, sentinel, users, config)
     private val flows = FlowRunner(loop, users)
@@ -94,6 +98,7 @@ class XiaomanAgent(
             tasks = tasks,
             roster = roster,
             records = records,
+            patients = patients,
         )
         try {
             val builtIn = builtInSpecs()
@@ -169,7 +174,8 @@ class XiaomanAgent(
     private fun builtInSpecs(): List<ToolSpec> = AgentTools.specs.filter { spec ->
         (config.phoneTasks || spec.name != AgentTools.PHONE_TASK) &&
             (tasks != null || spec.name !in TASK_TOOLS) &&
-            (records != null || spec.name !in RECORD_TOOLS)
+            (records != null || spec.name !in RECORD_TOOLS) &&
+            (patients != null || spec.name !in PATIENT_TOOLS)
     }
 
     /** External tools that do not clash with built-in names; a failing provider simply offers nothing. */
@@ -215,6 +221,11 @@ class XiaomanAgent(
                     remaining -= text.length
                 }
             }
+        }
+        val wards = patients?.let { quietly(emptyList()) { it.all() } }.orEmpty()
+        if (wards.isNotEmpty()) {
+            val localToday = java.time.Instant.ofEpochMilli(clock()).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+            append("\n\n").append(Prompts.patientsSection(wards, localToday, MAX_PATIENTS_IN_PROMPT))
         }
         val generated = records?.let { quietly(emptyList()) { it.list() } }.orEmpty()
         if (generated.isNotEmpty()) {
@@ -304,6 +315,9 @@ class XiaomanAgent(
 
         /** How many saved record names ride along in the system prompt. */
         const val MAX_RECORDS_IN_PROMPT = 12
+
+        /** 在院患者进提示词的上限，超出的靠 patient_list 查。 */
+        const val MAX_PATIENTS_IN_PROMPT = 15
         private val TASK_TOOLS = setOf(
             AgentTools.TASK_ADD,
             AgentTools.TASK_LIST,
@@ -311,6 +325,8 @@ class XiaomanAgent(
             AgentTools.TASK_UPDATE,
             AgentTools.TASK_ROSTER,
         )
+
+        private val PATIENT_TOOLS = setOf(AgentTools.PATIENT_LIST, AgentTools.PATIENT_UPDATE, AgentTools.PATIENT_ARCHIVE)
 
         private val RECORD_TOOLS = setOf(
             AgentTools.RECORD_SAVE, AgentTools.TEMPLATE_READ, AgentTools.TEMPLATE_SAVE,

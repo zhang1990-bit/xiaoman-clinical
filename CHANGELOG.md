@@ -2,6 +2,37 @@
 
 本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)。日期为北京时间。
 
+## v1.7.0 — 2026-11-20
+
+**患者页（P0，只读）**：从"待办上的两个字段"升级成独立实体。
+
+### 数据层
+
+- `Patient`：`id`（p-0001 自增）、床号、床位历史、诊断、阶段、入院日、手术节点、会诊、缺口标记
+- `PatientStage`：admitted / preop / postop / discharged / archived
+- `PatientGaps`：`⚠N` 的唯一算法，列表和详情共用
+- `FilePatientStore`：`patients.json` 原子写 + `events.jsonl` 只追加 + 损坏文件隔离
+- `CareTask` 加 `patientId`：待办从此能挂到具体的人，不再靠姓名匹配
+
+### 迁移
+
+首次启动：按 `patientKey` 为老待办建档、回填 `patientId`，改之前备份 `tasks.pre-patients.json`。
+旧待办一条不动，`patientKey` 仍是姓名（调床判定逻辑不变）。
+
+### 对话
+
+三个新工具：`patient_list`（在院/归档）、`patient_update`（口述建档、记手术、标肿瘤、关术前检查）、`patient_archive`。
+系统提示每轮带「## 在院患者」摘要（最多 15 行，超出的用 `patient_list` 查）。
+
+### 界面
+
+底部新增「患者」Tab：当前住院 / 归档两栏，四个筛选（全部/术前/术后/有缺口），列表带阶段色块与 `⚠N`；
+点开是时间轴 + 今日待办 + 基本信息。**只读**——归档、加提醒、记手术仍在对话里做。
+
+### 测试
+
+新增 `PatientTest` 5 项、`FilePatientStoreTest` 5 项、`PatientToolTest` 4 项。
+
 ## v1.6.0 — 2026-11-19
 
 **瘦身**：清掉与临床无关的技能，关掉读屏路径。

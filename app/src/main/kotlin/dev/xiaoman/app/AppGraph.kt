@@ -8,6 +8,9 @@ import dev.xiaoman.api.ChatMessage
 import dev.xiaoman.api.ChatRequest
 import dev.xiaoman.api.ModelConfig
 import dev.xiaoman.api.ModelRole
+import dev.xiaoman.api.Patient
+import dev.xiaoman.api.PatientEvent
+import dev.xiaoman.api.TaskState
 import dev.xiaoman.app.session.AgentSession
 import dev.xiaoman.app.session.SessionTexts
 import dev.xiaoman.app.settings.AppSettings
@@ -30,6 +33,7 @@ import dev.xiaoman.mcp.UserChannelApprovals
 import dev.xiaoman.memory.FileMemoryStore
 import dev.xiaoman.sentinel.PolicySentinel
 import dev.xiaoman.skills.DirectorySkillRepository
+import dev.xiaoman.tasks.FilePatientStore
 import dev.xiaoman.tasks.FileRecordStore
 import dev.xiaoman.tasks.FileRosterStore
 import dev.xiaoman.tasks.FileTaskStore
@@ -82,6 +86,10 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
 
     /** Today's ward table from the HIS photo, in the same folder as the tasks. */
     val rosterStore by lazy { FileRosterStore(tasksDir) }
+
+    /** 患者档案：在院 + 归档，放在 tasks 同级的 patients/ 目录。 */
+    val patientsDir = File(externalRoot, "patients")
+    val patientStore by lazy { FilePatientStore(patientsDir) }
 
     /** Generated surgical records and the user's own templates. */
     val recordsDir = File(externalRoot, "records")
@@ -167,6 +175,41 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     private var cachedAgent: Pair<Pair<AppSettings, McpSelection>, Agent>? = null
 
     /**
+     * 一次性迁移：老版本的待办只有姓名，没有患者档案。
+     * 按 patientKey 建患者、回填 patientId；改之前先备份 tasks.json，出问题能整体回滚。
+     */
+    private suspend fun migratePatients() {
+        val store = patientStore
+        if (store.all().isNotEmpty() || store.archived().isNotEmpty()) return
+        val open = taskStore.all().filter { it.state != TaskState.DONE }
+        if (open.isEmpty()) return
+        val source = File(tasksDir, "tasks.json")
+        val backup = File(tasksDir, "tasks.pre-patients.json")
+        if (source.isFile && !backup.exists()) runCatching { source.copyTo(backup, overwrite = false) }
+        val today = java.time.LocalDate.now().toString()
+        val names = open.map { it.patientKey }.distinct()
+        val idByName = mutableMapOf<String, String>()
+        names.forEachIndexed { index, name ->
+            val first = open.first { it.patientKey == name }
+            val id = "p-" + (index + 1).toString().padStart(4, '0')
+            idByName[name] = id
+            store.upsert(
+                Patient(
+                    id = id, name = first.name, bed = first.bed,
+                    admittedOn = today, createdAt = today, updatedAt = today, lastSeenOnRoster = today,
+                ),
+            )
+        }
+        taskStore.updateAll(open.map { it.copy(patientId = idByName[it.patientKey]) })
+        store.log(
+            PatientEvent(
+                java.time.LocalDateTime.now().withNano(0).toString(),
+                "migration.v1", "-", "${names.size} 位患者，来自 ${open.size} 条待办", "migration",
+            ),
+        )
+    }
+
+    /**
      * One tiny request with the settings currently typed on screen, so the Settings screen can show
      * the provider's own error ("Model Not Exist") instead of a generic "模型服务暂时不可用".
      */
@@ -203,6 +246,7 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
             tasks = taskStore,
             roster = rosterStore,
             records = recordStore,
+            patients = patientStore,
         )
         cachedAgent = key to agent
         return agent
@@ -215,6 +259,7 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         scope.launch(Dispatchers.IO) {
             // "上上个月及更早" closed tasks leave the active file once a month; cheap and idempotent.
             runCatching { taskStore.archiveBefore(YearMonth.now().minusMonths(1)) }
+            runCatching { migratePatients() }
         }
         OverlayController(session, accessibilityDevice, uiVisible = uiVisible).start(scope)
         scope.launch(Dispatchers.Main.immediate) {
