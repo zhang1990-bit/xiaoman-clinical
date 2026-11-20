@@ -98,6 +98,7 @@ internal class ChatTools(
             AgentTools.PATIENT_UPDATE -> patientUpdate(args)
             AgentTools.PATIENT_ARCHIVE -> patientArchive(args)
             AgentTools.PATIENT_ADMIT -> patientAdmit(args)
+            AgentTools.DAY_CLOSE -> dayClose(args)
             AgentTools.PHONE_TASK -> if (phoneTasks) phone(args) else error("这里不能操作手机，请用其他工具或告诉用户自己操作")
             else -> external(call, taskId, emit)
         }
@@ -481,6 +482,14 @@ internal class ChatTools(
                 var next = hit.copy(lastSeenOnRoster = today.toString(), updatedAt = today.toString())
                 if (next.stage == PatientStage.ARCHIVED) {
                     next = next.copy(stage = PatientStage.ADMITTED, archivedOn = null, archiveReason = null)
+                    // 人又出现了：出院首页那条不用再提醒
+                    tasks?.let { taskStore ->
+                        taskStore.all()
+                            .filter { it.patientId == next.id && it.state != TaskState.DONE && it.item == "整理出院首页" }
+                            .forEach {
+                                taskStore.update(it.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = "患者重新出现在名单"))
+                            }
+                    }
                 }
                 if (next.bed != slot.bed) next = next.movedTo(slot.bed, today.toString())
                 syncPatientTasks(store.upsert(next), today)
@@ -491,7 +500,7 @@ internal class ChatTools(
         existing.filter { it.stage != PatientStage.ARCHIVED && it.name !in seen }
             .filter { it.lastSeenOnRoster != null && it.lastSeenOnRoster != today.toString() }
             .forEach {
-                store.archive(it.id, "名单中未出现", today.toString())
+                archiveWithCleanup(it, "名单中未出现", today)
                 archived++
             }
         return created to archived
@@ -661,6 +670,56 @@ internal class ChatTools(
         }.toString()
     }
 
+    /**
+     * 收工清算（17:00 或用户说「收工」）。
+     *
+     * 不带 decisions 只列清单；带 decisions 时逐条落实，三种动作：
+     * done=办完 / later=今天先不推了 / skip=不需要。**不允许悄悄过期。**
+     */
+    private suspend fun dayClose(args: JsonObject): String {
+        val store = tasks ?: return error("待办功能没有启用")
+        val today = today()
+        val decisions = objects(args, "decisions")
+        if (decisions.isEmpty()) {
+            val pending = store.all().filter { it.state != TaskState.DONE && it.isDue(today) }
+            val roster = patients?.let { it.all().associateBy { p -> p.id } }.orEmpty()
+            return buildJsonObject {
+                put("ok", true)
+                put("count", pending.size)
+                putJsonArray("items") {
+                    pending.forEach { t ->
+                        addJsonObject {
+                            put("id", t.id)
+                            put("line", "${t.bed}床 ${t.name}｜${t.item}" + (roster[t.patientId]?.let { p -> "（${p.stageLabel(today)}）" } ?: ""))
+                        }
+                    }
+                }
+                if (pending.isEmpty()) put("summary", "今天的都处理完了")
+            }.toString()
+        }
+        var applied = 0
+        val unknown = mutableListOf<String>()
+        decisions.forEach { d ->
+            val id = JsonText.string(d, "id").orEmpty()
+            val action = JsonText.string(d, "action")?.lowercase().orEmpty()
+            val task = id.takeIf { it.isNotEmpty() }?.let { store.find(it) }
+            if (task == null) { unknown += id; return@forEach }
+            val next = when (action) {
+                "done", "办完" -> task.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = "收工确认办完")
+                "later", "延后" -> task.copy(silentDate = today.toString())
+                "skip", "不需要" -> task.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = "收工确认不需要")
+                else -> { unknown += "$id:$action"; return@forEach }
+            }
+            store.update(next)
+            applied++
+        }
+        return buildJsonObject {
+            put("ok", true)
+            put("applied", applied)
+            if (unknown.isNotEmpty()) putJsonArray("unknown") { unknown.forEach { add(it) } }
+        }.toString()
+    }
+
     /** 入院患者照片：一人一条，已存在的只补诊断，不重复建。 */
     private suspend fun patientAdmit(args: JsonObject): String {
         val store = patients ?: return error("患者功能没有启用")
@@ -771,6 +830,50 @@ internal class ChatTools(
         }
     }
 
+    /**
+     * 归档一位患者，连带三件事（2026-11-20 定）：
+     * 1. 未完成的自动提醒全部清掉（复查血、换药不再推）
+     * 2. 生成「整理出院首页」，3 天后失效
+     * 3. 写事件，说明依据
+     */
+    private suspend fun archiveWithCleanup(patient: Patient, reason: String, today: LocalDate): Patient? {
+        val store = patients ?: return null
+        val archived = store.archive(patient.id, reason, today.toString()) ?: return null
+        tasks?.let { taskStore ->
+            val open = taskStore.all().filter { it.patientId == patient.id && it.state != TaskState.DONE }
+            if (open.isNotEmpty()) {
+                taskStore.updateAll(
+                    open.map {
+                        it.copy(
+                            state = TaskState.DONE,
+                            closedAt = today.toString(),
+                            closeReason = "患者已归档：$reason",
+                        )
+                    },
+                )
+            }
+            taskStore.add(
+                listOf(
+                    CareTask(
+                        id = "dc-${patient.id}-${today}",
+                        bed = patient.bed, name = patient.name, patientKey = patient.name,
+                        patientId = patient.id, item = "整理出院首页", note = "出院后 3 天内完成",
+                        rule = TaskRule(), state = TaskState.ACTIVE,
+                        until = today.plusDays(3).toString(), createdAt = today.toString(),
+                        source = PatientTasks.SOURCE_AUTO,
+                    ),
+                ),
+            )
+        }
+        store.log(
+            PatientEvent(
+                java.time.LocalDateTime.now().withNano(0).toString(),
+                "patient.archived", archived.id, reason, "roster",
+            ),
+        )
+        return archived
+    }
+
     private suspend fun patientArchive(args: JsonObject): String {
         val store = patients ?: return error("患者功能没有启用")
         val today = today()
@@ -778,7 +881,7 @@ internal class ChatTools(
             ?: JsonText.string(args, "bed")?.trim()?.takeIf { it.isNotEmpty() }?.let { store.findByBed(it) }
             ?: return error("找不到这个患者，先用 patient_list 看 id")
         val reason = JsonText.string(args, "reason")?.trim().orEmpty().ifEmpty { "手动归档" }
-        val archived = store.archive(target.id, reason, today.toString())
+        val archived = archiveWithCleanup(target, reason, today)
             ?: return error("归档失败：${target.id}")
         store.log(PatientEvent(java.time.LocalDateTime.now().withNano(0).toString(), "patient.archived", archived.id, reason, "manual"))
         return buildJsonObject {

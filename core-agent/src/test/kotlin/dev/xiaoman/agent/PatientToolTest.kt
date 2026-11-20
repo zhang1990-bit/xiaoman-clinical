@@ -135,6 +135,79 @@ class PatientToolTest {
     }
 
     @Test
+    fun archivingClearsPostOpTasksAndLeavesAHomepageReminder() = runTest {
+        val h = Harness()
+        h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx","surgeryDate":"2026-11-20"}""")).reply("好")
+        h.agent.handle("12 床做了", h.events, h.stop)
+
+        h.chat.tools(ToolCall("c2", AgentTools.PATIENT_ARCHIVE, """{"bed":"12","reason":"出院"}""")).reply("归档了")
+        h.agent.handle("12 床出院了", h.events, h.stop)
+
+        val auto = h.tasks.items.filter { it.patientId == "p-0001" }
+        assertTrue(auto.none { it.state == dev.xiaoman.api.TaskState.ACTIVE && it.item.contains("换药") }, "术后节点要清掉")
+        val homepage = auto.single { it.item == "整理出院首页" }
+        assertEquals(dev.xiaoman.api.TaskState.ACTIVE, homepage.state)
+        assertTrue(homepage.until > homepage.createdAt, "出院首页提醒只在 3 天内有效")
+    }
+
+    @Test
+    fun patientComingBackClosesTheHomepageReminder() = runTest {
+        val h = Harness()
+        h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx"}""")).reply("好")
+        h.agent.handle("新入 12 床", h.events, h.stop)
+        h.chat.tools(ToolCall("c2", AgentTools.PATIENT_ARCHIVE, """{"bed":"12","reason":"名单未出现"}""")).reply("归档")
+        h.agent.handle("12 床不在了", h.events, h.stop)
+
+        h.chat.tools(
+            ToolCall("c3", AgentTools.TASK_ROSTER, """{"beds":[{"bed":"12","name":"李xx"}]}"""),
+        ).reply("又出现了")
+        h.agent.handle("今天的名单", h.events, h.stop)
+
+        assertEquals(1, h.patients.all().size)
+        assertEquals(
+            dev.xiaoman.api.TaskState.DONE,
+            h.tasks.items.single { it.item == "整理出院首页" }.state,
+        )
+    }
+
+    @Test
+    fun dayCloseListsThenAppliesDecisions() = runTest {
+        val h = Harness()
+        h.tasks.items += dev.xiaoman.api.CareTask(
+            id = "t-1", bed = "12", name = "李xx", patientKey = "李xx", item = "术前检查",
+            until = "2099-01-01", createdAt = "1970-01-01",
+        )
+        h.chat.tools(ToolCall("c1", AgentTools.DAY_CLOSE, "{}")).reply("一条没弄")
+
+        h.agent.handle("收工", h.events, h.stop)
+
+        val list = h.chat.requests.last().messages.last().text
+        assertTrue("\"count\":1" in list, list)
+        assertTrue("术前检查" in list, list)
+
+        h.chat.tools(ToolCall("c2", AgentTools.DAY_CLOSE, """{"decisions":[{"id":"t-1","action":"done"}]}""")).reply("办完了")
+        h.agent.handle("12 床检查做了", h.events, h.stop)
+
+        assertEquals(dev.xiaoman.api.TaskState.DONE, h.tasks.items.single().state)
+    }
+
+    @Test
+    fun dayCloseCanSnoozeUntilTomorrow() = runTest {
+        val h = Harness()
+        h.tasks.items += dev.xiaoman.api.CareTask(
+            id = "t-2", bed = "8", name = "王xx", patientKey = "王xx", item = "会诊回复",
+            until = "2099-01-01", createdAt = "1970-01-01",
+        )
+        h.chat.tools(ToolCall("c1", AgentTools.DAY_CLOSE, """{"decisions":[{"id":"t-2","action":"later"}]}""")).reply("明天再说")
+
+        h.agent.handle("延后", h.events, h.stop)
+
+        val task = h.tasks.items.single()
+        assertEquals(dev.xiaoman.api.TaskState.ACTIVE, task.state, "延后不是办完")
+        assertTrue(task.silentDate != null, "今天不再推")
+    }
+
+    @Test
     fun archiveMovesPatientOutOfTheList() = runTest {
         val h = Harness()
         h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx"}"""))

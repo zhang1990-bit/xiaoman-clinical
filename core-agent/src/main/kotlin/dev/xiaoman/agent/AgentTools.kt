@@ -29,6 +29,7 @@ object AgentTools {
     const val PATIENT_UPDATE = "patient_update"
     const val PATIENT_ARCHIVE = "patient_archive"
     const val PATIENT_ADMIT = "patient_admit"
+    const val DAY_CLOSE = "day_close"
     const val RECORD_LIST = "record_list"
     const val RECORD_READ = "record_read"
 
@@ -187,6 +188,22 @@ object AgentTools {
                 listOf("title", "content"),
                 "title" to str("文件名主体，如 20261118_开腹肝癌切除；不要带 .txt"),
                 "content" to str("手术记录正文，段落之间用一个空行分隔"),
+            ),
+        ),
+        ToolSpec(
+            DAY_CLOSE,
+            "收工清算。用户说「收工」「今天还有什么没弄」时先不带参数调用，把清单原样报给他；"
+                + "他逐条答复后，再带 decisions 落实。每条必须归到办完 / 延后 / 不需要，不许放着不管。",
+            schema(
+                emptyList(),
+                "decisions" to arr(
+                    "逐条处理结果；不带则只列清单",
+                    obj(
+                        "一条决定",
+                        "id" to str("任务 id，从清单里拿"),
+                        "action" to str("done=办完 / later=今天先不推 / skip=不需要"),
+                    ),
+                ),
             ),
         ),
         ToolSpec(

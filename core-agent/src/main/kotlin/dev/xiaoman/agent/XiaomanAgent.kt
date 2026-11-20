@@ -324,6 +324,7 @@ class XiaomanAgent(
             AgentTools.TASK_DONE,
             AgentTools.TASK_UPDATE,
             AgentTools.TASK_ROSTER,
+            AgentTools.DAY_CLOSE,
         )
 
         private val PATIENT_TOOLS = setOf(
