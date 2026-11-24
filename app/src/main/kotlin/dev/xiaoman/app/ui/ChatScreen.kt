@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,15 +32,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -58,6 +62,9 @@ import kotlinx.coroutines.withContext
 /** A picked photo after downscaling: [bytes] go to the model, [preview] is shown in the confirm dialog. */
 private class PickedPhoto(val bytes: ByteArray, val preview: ImageBitmap)
 
+/** 一次最多挂几张。再多，模型读图也会开始漏。 */
+private const val MAX_ATTACHED = 6
+
 @Composable
 fun ChatScreen(graph: AppGraph, onOpenSettings: () -> Unit) {
     val session = graph.session
@@ -73,8 +80,8 @@ fun ChatScreen(graph: AppGraph, onOpenSettings: () -> Unit) {
     val keyboard = LocalSoftwareKeyboardController.current
     val notificationsGranted = rememberNotificationPermission()
     var draft by rememberSaveable { mutableStateOf("") }
-    // [attached] rides along with the next message; [confirming] is the 脱敏 dialog waiting for a yes.
-    var attached by remember { mutableStateOf<PickedPhoto?>(null) }
+    // 一次可以挂多张：拍三张条码、或一张名单加一张条码，都不用分批发。
+    var attached by remember { mutableStateOf<List<PickedPhoto>>(emptyList()) }
     var confirming by remember { mutableStateOf<PickedPhoto?>(null) }
     val uiScope = rememberCoroutineScope()
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -91,13 +98,13 @@ fun ChatScreen(graph: AppGraph, onOpenSettings: () -> Unit) {
     }
 
     /** Sends the draft plus an optional photo. The photo is dropped once the turn starts. */
-    fun submitTurn(text: String, photo: PickedPhoto?): AgentSession.Submit {
-        val images = photo?.let { listOf(ContentPart.Image(it.bytes, ImagePrep.MIME)) }.orEmpty()
-        val prompt = if (text.isBlank() && photo != null) context.getString(R.string.photo_default_prompt) else text
+    fun submitTurn(text: String, photos: List<PickedPhoto>): AgentSession.Submit {
+        val images = photos.map { ContentPart.Image(it.bytes, ImagePrep.MIME) }
+        val prompt = if (text.isBlank() && photos.isNotEmpty()) context.getString(R.string.photo_default_prompt) else text
         val result = if (images.isEmpty()) session.submit(prompt) else session.submit(prompt, images)
         if (result == AgentSession.Submit.Started || result == AgentSession.Submit.Answered) {
             draft = ""
-            attached = null
+            attached = emptyList()
         }
         return result
     }
@@ -133,7 +140,7 @@ fun ChatScreen(graph: AppGraph, onOpenSettings: () -> Unit) {
             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (items.isEmpty()) item { ChatWelcome { draft = it } }
+            if (items.isEmpty()) item { ChatHero() }
             items(rows, key = { it.id }) { row ->
                 when (row) {
                     is TimelineRow.Message -> ChatMessage(row.item)
@@ -150,9 +157,9 @@ fun ChatScreen(graph: AppGraph, onOpenSettings: () -> Unit) {
                 onChange = { draft = it },
                 busy = busy,
                 answering = question != null,
-                photo = attached,
+                photos = attached,
                 onPick = { pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                onRemovePhoto = { attached = null },
+                onRemovePhoto = { index -> attached = attached.filterIndexed { i, _ -> i != index } },
                 onSend = { submitTurn(it, attached) },
                 onStop = session::stop,
             )
@@ -162,7 +169,7 @@ fun ChatScreen(graph: AppGraph, onOpenSettings: () -> Unit) {
         PhotoConfirm(
             photo,
             onAttach = {
-                attached = photo
+                if (attached.size < MAX_ATTACHED) attached = attached + photo
                 confirming = null
             },
             onDismiss = { confirming = null },
@@ -200,9 +207,9 @@ private fun ChatInput(
     onChange: (String) -> Unit,
     busy: Boolean,
     answering: Boolean,
-    photo: PickedPhoto?,
+    photos: List<PickedPhoto>,
     onPick: () -> Unit,
-    onRemovePhoto: () -> Unit,
+    onRemovePhoto: (Int) -> Unit,
     onSend: (String) -> AgentSession.Submit,
     onStop: () -> Unit,
 ) {
@@ -210,10 +217,10 @@ private fun ChatInput(
     val keyboard = LocalSoftwareKeyboardController.current
     val field = remember { FocusRequester() }
     // Attaching a picture is an invitation to say what it is for: open the keyboard for the user.
-    LaunchedEffect(photo) {
-        if (photo != null) runCatching { field.requestFocus() }
+    LaunchedEffect(photos.size) {
+        if (photos.isNotEmpty()) runCatching { field.requestFocus() }
     }
-    val canSend = (text.isNotBlank() || photo != null) && (!busy || answering)
+    val canSend = (text.isNotBlank() || photos.isNotEmpty()) && (!busy || answering)
     fun send() {
         if (!canSend) return
         when (onSend(text)) {
@@ -223,38 +230,38 @@ private fun ChatInput(
     }
     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
         Column(Modifier.fillMaxWidth()) {
-            // The attached picture waits here until the user has said what to do with it.
-            if (photo != null) {
+            // 挂着的图片：横向排开，每张单独可撤；后面跟着「+」接着加。
+            if (photos.isNotEmpty()) {
                 Row(
-                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp),
+                    Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                        Row(
-                            Modifier.padding(start = 6.dp, top = 6.dp, bottom = 6.dp, end = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                    photos.forEachIndexed { index, photo ->
+                        Box {
                             Image(
                                 bitmap = photo.preview, contentDescription = null,
-                                modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)),
+                                modifier = Modifier.size(52.dp).clip(RoundedCornerShape(10.dp)),
                                 contentScale = ContentScale.Crop,
                             )
-                            Text(
-                                stringResource(R.string.photo_attached),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 8.dp),
-                            )
-                            IconButton(onClick = onRemovePhoto, modifier = Modifier.size(32.dp)) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = stringResource(R.string.photo_remove),
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = Color(0xCC2B3441),
+                                modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).size(16.dp),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        "×", color = Color.White, fontSize = 11.sp,
+                                        modifier = Modifier.clickable { onRemovePhoto(index) },
+                                    )
+                                }
                             }
                         }
                     }
+                    Text(
+                        if (photos.size >= MAX_ATTACHED) "最多 $MAX_ATTACHED 张" else "共 ${photos.size} 张",
+                        fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.Bottom) {
@@ -262,7 +269,7 @@ private fun ChatInput(
                     Icon(
                         Icons.Outlined.Image,
                         contentDescription = stringResource(R.string.chat_attach),
-                        tint = if (photo != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (photos.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 OutlinedTextField(
@@ -271,7 +278,7 @@ private fun ChatInput(
                         Text(
                             when {
                                 answering -> "告诉我就好…"
-                                photo != null -> "这张图要做什么？可留空"
+                                photos.isNotEmpty() -> "这几张图要做什么？可留空"
                                 else -> "说说你想做什么…"
                             },
                             style = MaterialTheme.typography.bodyMedium,
@@ -328,4 +335,30 @@ private fun rememberNotificationPermission(): NotificationPermission {
         }
     }
     return NotificationPermission(granted) { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+}
+
+
+/** 首页只留一句话。以前那些「选一本笔记本」式的示例卡片，对临床是噪音。 */
+@Composable
+private fun ChatHero() {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 26.dp, vertical = 40.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            "手稳一点，",
+            fontSize = 27.sp, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground, lineHeight = 38.sp,
+        )
+        Row {
+            Text("剩下的", fontSize = 27.sp, fontWeight = FontWeight.SemiBold, lineHeight = 38.sp)
+            Text("交给它", fontSize = 27.sp, fontWeight = FontWeight.SemiBold, lineHeight = 38.sp, color = Color(0xFF0E7A6B))
+            Text("。", fontSize = 27.sp, fontWeight = FontWeight.SemiBold, lineHeight = 38.sp)
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "说完就记下，明天早上它会提醒你。",
+            fontSize = 12.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }

@@ -19,6 +19,10 @@ data class BedStay(val bed: String, val from: String, val to: String? = null)
 @Serializable
 data class Surgery(val date: String, val name: String, val recordId: String? = null)
 
+/** 排期但还没做的手术。和 [Surgery] 分开：一个是可以改的计划，一个是既成事实。 */
+@Serializable
+data class PlannedSurgery(val date: String, val name: String = "", val order: String? = null)
+
 /** 会诊：回复 ≠ 结束，可能还有后续检查要跟。 */
 @Serializable
 data class Consult(
@@ -48,6 +52,10 @@ data class Patient(
     val admittedOn: String,
     val bedHistory: List<BedStay> = emptyList(),
     val surgery: Surgery? = null,
+    /** 已排期未做：日期、术式、台次（"第1台"）。改了就是改期，不动历史。 */
+    val plannedSurgery: PlannedSurgery? = null,
+    /** 拟出院日，口头给的。 */
+    val plannedDischarge: String? = null,
     val dischargedOn: String? = null,
     /** 肿瘤标记：置 true 才会推 MDT 提醒。 */
     val tumor: Boolean = false,

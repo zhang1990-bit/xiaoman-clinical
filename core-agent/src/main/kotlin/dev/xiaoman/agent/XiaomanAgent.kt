@@ -17,6 +17,7 @@ import dev.xiaoman.api.MemoryStore
 import dev.xiaoman.api.Note
 import dev.xiaoman.api.Observation
 import dev.xiaoman.api.ReminderScheduler
+import dev.xiaoman.api.ChatLogStore
 import dev.xiaoman.api.PatientGaps
 import dev.xiaoman.api.PatientStore
 import dev.xiaoman.api.RecordStore
@@ -62,11 +63,14 @@ class XiaomanAgent(
     private val records: RecordStore? = null,
     /** 患者档案；null 时不提供 patient_* 工具，也不注入在院患者摘要。 */
     private val patients: PatientStore? = null,
+    /** 对话落盘；null 时历史只在内存里（退出即失）。 */
+    private val chatLog: ChatLogStore? = null,
 ) : Agent {
     private val loop = OperatorLoop(operator, device, sentinel, users, config)
     private val flows = FlowRunner(loop, users)
     private val historyLock = Mutex()
     private val history = ArrayDeque<ChatMessage>()
+    private var restored = false
 
     override suspend fun handle(userMessage: String, listener: AgentListener, stop: StopSignal) =
         handle(userMessage, emptyList(), listener, stop)
@@ -101,6 +105,7 @@ class XiaomanAgent(
             patients = patients,
         )
         try {
+            restoreHistoryOnce()
             val builtIn = builtInSpecs()
             val toolSpecs = builtIn + externalSpecs()
             val system = ChatMessage.system(systemPrompt(userMessage, hasExternalTools = toolSpecs.size > builtIn.size))
@@ -243,9 +248,26 @@ class XiaomanAgent(
         }
     }.trimEnd()
 
+    /** 第一次开口时把磁盘上的最近对话读回内存，重装/重启都接得上。 */
+    private suspend fun restoreHistoryOnce() {
+        if (restored) return
+        restored = true
+        val store = chatLog ?: return
+        val turns = quietly(emptyList()) { store.recent(HISTORY_LIMIT) }
+        if (turns.isEmpty()) return
+        historyLock.withLock {
+            history.clear()
+            turns.forEach { t ->
+                history.addLast(if (t.role == "user") ChatMessage.user(t.text) else ChatMessage.assistant(t.text))
+            }
+        }
+    }
+
     private suspend fun remember(userMessage: String, reply: String?) = historyLock.withLock {
         history.addLast(ChatMessage.user(userMessage))
         if (!reply.isNullOrBlank()) history.addLast(ChatMessage.assistant(reply))
+        chatLog?.append("user", userMessage)
+        if (!reply.isNullOrBlank()) chatLog?.append("assistant", reply)
         while (history.size > HISTORY_LIMIT) history.removeFirst()
         // Never start the window with an assistant message.
         while (history.firstOrNull()?.role == ChatRole.ASSISTANT) history.removeFirst()

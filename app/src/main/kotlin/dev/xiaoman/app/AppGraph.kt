@@ -27,6 +27,7 @@ import dev.xiaoman.llm.LlmClients
 import dev.xiaoman.memory.FileMemoryStore
 import dev.xiaoman.sentinel.PolicySentinel
 import dev.xiaoman.skills.DirectorySkillRepository
+import dev.xiaoman.tasks.FileChatLog
 import dev.xiaoman.tasks.FilePatientStore
 import dev.xiaoman.tasks.FileRecordStore
 import dev.xiaoman.tasks.FileRosterStore
@@ -78,6 +79,10 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
 
     /** Today's ward table from the HIS photo, in the same folder as the tasks. */
     val rosterStore by lazy { FileRosterStore(tasksDir) }
+
+    /** 对话落盘：按月一个 jsonl，退出重进接得上。 */
+    val chatsDir = File(externalRoot, "chats")
+    val chatLog by lazy { FileChatLog(chatsDir) }
 
     /** 患者档案：在院 + 归档，放在 tasks 同级的 patients/ 目录。 */
     val patientsDir = File(externalRoot, "patients")
@@ -257,6 +262,51 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         return true
     }
 
+    /** 清理报告：删了什么、省了多少。 */
+    data class CleanupReport(val chatTurns: Int, val patients: Int, val records: Int, val bytes: Long, val days: Int = 30)
+
+    /** 先看会删什么（dryRun），再决定要不要真删。 */
+    suspend fun cleanupPreview(): CleanupReport = cleanup(dryRun = true)
+
+    suspend fun cleanup(): CleanupReport = cleanup(dryRun = false)
+
+    /**
+     * 清理一个月前的内容（2026-11-24 定）：
+     * 对话日志、超过 30 天的归档患者（档案+待办+事件一起走）、30 天前的手术记录 TXT。
+     * 在院患者、未完成待办、近 30 天的一切都不动。
+     */
+    private suspend fun cleanup(dryRun: Boolean): CleanupReport {
+        val cutoff = java.time.LocalDate.now().minusDays(30)
+        val cutoffText = cutoff.toString()
+        var chatTurns = 0
+        var patients = 0
+        var records = 0
+        var bytes = 0L
+
+        chatLog.stats().let { (bytesNow, _) -> if (dryRun) bytes += bytesNow / 3 }
+        if (!dryRun) chatTurns = chatLog.purgeBefore(cutoffText)
+
+        patientStore.archived()
+            .filter { (it.archivedOn ?: it.updatedAt) < cutoffText }
+            .forEach { p ->
+                patients++
+                if (!dryRun) {
+                    taskStore.remove(taskStore.all().filter { it.patientId == p.id }.map { it.id }.toSet())
+                    patientStore.purge(p.id)
+                }
+            }
+
+        recordsDir.listFiles { f -> f.isFile && f.name.endsWith(".txt") }?.forEach { f ->
+            val stamp = f.name.take(8)
+            if (stamp.length == 8 && stamp.all { it.isDigit() } && stamp < cutoffText.replace("-", "")) {
+                records++
+                bytes += f.length()
+                if (!dryRun) f.delete()
+            }
+        }
+        return CleanupReport(chatTurns, patients, records, bytes)
+    }
+
     /** 完成病案首页：患者、待办、事件一并清除，不可恢复。 */
     suspend fun purgePatient(id: String): Boolean {
         if (patientStore.find(id) == null && patientStore.archived().none { it.id == id }) return false
@@ -299,6 +349,7 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
             roster = rosterStore,
             records = recordStore,
             patients = patientStore,
+            chatLog = chatLog,
         )
         cachedAgent = current to agent
         return agent

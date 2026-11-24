@@ -645,6 +645,17 @@ internal class ChatTools(
                 preopDone = true,
             )
         }
+        JsonText.string(args, "plannedSurgeryDate")?.trim()?.takeIf { it.length >= 8 }?.let { date ->
+            next = next.copy(
+                plannedSurgery = dev.xiaoman.api.PlannedSurgery(
+                    date = date,
+                    name = JsonText.string(args, "plannedSurgeryName") ?: next.plannedSurgery?.name.orEmpty(),
+                    order = JsonText.string(args, "plannedOrder") ?: next.plannedSurgery?.order,
+                ),
+                stage = if (next.stage == PatientStage.ADMITTED) PatientStage.PREOP else next.stage,
+            )
+        }
+        JsonText.string(args, "plannedDischarge")?.trim()?.takeIf { it.length >= 8 }?.let { next = next.copy(plannedDischarge = it) }
         JsonText.string(args, "stage")?.let { raw ->
             when (raw.lowercase()) {
                 "admitted", "入院" -> next = next.copy(stage = PatientStage.ADMITTED)
