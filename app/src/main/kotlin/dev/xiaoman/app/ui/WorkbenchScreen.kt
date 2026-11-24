@@ -1,6 +1,7 @@
 package dev.xiaoman.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -91,7 +92,8 @@ private fun BucketCard(kind: Workbench.Kind, entries: List<Workbench.Entry>, tod
             } else {
                 entries.take(4).forEach { e ->
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 7.dp),
+                        Modifier.fillMaxWidth().clickable { onOpen(e.patient.id) }
+                            .padding(horizontal = 13.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Surface(shape = RoundedCornerShape(9.dp), color = bg, modifier = Modifier.width(38.dp).height(30.dp)) {

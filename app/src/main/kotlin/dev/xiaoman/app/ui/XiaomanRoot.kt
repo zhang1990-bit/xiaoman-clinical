@@ -56,6 +56,7 @@ enum class Tab(@StringRes val label: Int, val icon: ImageVector) {
 fun XiaomanRoot(graph: AppGraph) {
     var tab by rememberSaveable { mutableStateOf(Tab.CHAT) }
     var moreSub by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingPatient by rememberSaveable { mutableStateOf<String?>(null) }
     val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
     // 返回手势逐级退：子页 → 更多 → 聊天 → 桌面
@@ -85,8 +86,15 @@ fun XiaomanRoot(graph: AppGraph) {
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
             when (tab) {
                 Tab.CHAT -> ChatScreen(graph, onOpenSettings = { tab = Tab.MORE; moreSub = "settings" })
-                Tab.WORKBENCH -> WorkbenchScreen(graph) { }
-                Tab.PATIENTS -> PatientScreen(graph)
+                Tab.WORKBENCH -> WorkbenchScreen(graph) { id ->
+                    pendingPatient = id
+                    tab = Tab.PATIENTS
+                }
+                Tab.PATIENTS -> PatientScreen(
+                    graph,
+                    initialPatientId = pendingPatient,
+                    onConsumed = { pendingPatient = null },
+                )
                 Tab.MORE -> when (moreSub) {
                     null -> MoreScreen(graph) { moreSub = it }
                     "skills" -> SubPage("技能", { moreSub = null }) { SkillsScreen(graph) }

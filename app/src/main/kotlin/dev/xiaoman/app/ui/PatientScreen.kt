@@ -36,7 +36,7 @@ import java.time.ZoneId
  * 不做任何写操作——归档、加提醒、记手术都还在对话里完成。
  */
 @Composable
-fun PatientScreen(graph: AppGraph) {
+fun PatientScreen(graph: AppGraph, initialPatientId: String? = null, onConsumed: () -> Unit = {}) {
     val today = remember { LocalDate.now() }
     var inHospital by remember { mutableStateOf<List<Patient>>(emptyList()) }
     var archived by remember { mutableStateOf<List<Patient>>(emptyList()) }
@@ -54,6 +54,17 @@ fun PatientScreen(graph: AppGraph) {
         loaded = true
     }
     LaunchedEffect(Unit) { reload() }
+    // 从工作台点进来的人：数据到位后直接展开他的详情
+    LaunchedEffect(initialPatientId, loaded) {
+        val id = initialPatientId ?: return@LaunchedEffect
+        if (!loaded) return@LaunchedEffect
+        val target = (inHospital + archived).firstOrNull { it.id == id }
+        if (target != null) {
+            showArchive = target.stage == PatientStage.ARCHIVED
+            selected = target
+        }
+        onConsumed()
+    }
     var pendingPurge by remember { mutableStateOf<Patient?>(null) }
     var pendingArchive by remember { mutableStateOf<Patient?>(null) }
 
