@@ -13,10 +13,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Context
 import dev.xiaoman.app.AppGraph
 import dev.xiaoman.api.Patient
 import dev.xiaoman.api.Workbench
@@ -30,9 +32,18 @@ import java.time.LocalDate
 @Composable
 fun WorkbenchScreen(graph: AppGraph, onOpenPatient: (String) -> Unit) {
     val today = remember { LocalDate.now() }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("workbench", Context.MODE_PRIVATE) }
+    var collapsed by remember { mutableStateOf(prefs.getStringSet("collapsed", emptySet())?.toSet().orEmpty()) }
     var patients by remember { mutableStateOf<List<Patient>>(emptyList()) }
     LaunchedEffect(Unit) { patients = graph.patientStore.all() }
     val board = remember(patients) { Workbench.build(patients, today) }
+
+    fun toggle(kind: Workbench.Kind) {
+        val next = if (kind.name in collapsed) collapsed - kind.name else collapsed + kind.name
+        collapsed = next
+        prefs.edit().putStringSet("collapsed", next).apply()
+    }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 12.dp)) {
@@ -52,7 +63,14 @@ fun WorkbenchScreen(graph: AppGraph, onOpenPatient: (String) -> Unit) {
         ) {
             Workbench.Kind.entries.forEach { kind ->
                 item(key = kind.name) {
-                    BucketCard(kind, board.of(kind), today, onOpenPatient)
+                    BucketCard(
+                        kind = kind,
+                        entries = board.of(kind),
+                        today = today,
+                        collapsed = kind.name in collapsed,
+                        onToggle = { toggle(kind) },
+                        onOpen = onOpenPatient,
+                    )
                 }
             }
         }
@@ -68,7 +86,14 @@ private fun kindColor(kind: Workbench.Kind): Pair<Color, Color> = when (kind) {
 }
 
 @Composable
-private fun BucketCard(kind: Workbench.Kind, entries: List<Workbench.Entry>, today: LocalDate, onOpen: (String) -> Unit) {
+private fun BucketCard(
+    kind: Workbench.Kind,
+    entries: List<Workbench.Entry>,
+    today: LocalDate,
+    collapsed: Boolean,
+    onToggle: () -> Unit,
+    onOpen: (String) -> Unit,
+) {
     val (fg, bg) = kindColor(kind)
     Surface(
         shape = RoundedCornerShape(14.dp),
@@ -77,13 +102,23 @@ private fun BucketCard(kind: Workbench.Kind, entries: List<Workbench.Entry>, tod
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column {
-            Row(Modifier.fillMaxWidth().padding(start = 13.dp, end = 13.dp, top = 12.dp, bottom = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth().clickable { onToggle() }
+                    .padding(start = 13.dp, end = 13.dp, top = 12.dp, bottom = if (collapsed) 12.dp else 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Surface(shape = RoundedCornerShape(999.dp), color = fg, modifier = Modifier.size(7.dp)) { Box(Modifier) }
                 Spacer(Modifier.width(9.dp))
                 Text(kind.title, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
                 Text("${entries.size} 人", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (collapsed) "展开" else "收起",
+                    fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
+            if (collapsed) return@Column
             if (entries.isEmpty()) {
                 Text(
                     "今天没有", fontSize = 11.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
