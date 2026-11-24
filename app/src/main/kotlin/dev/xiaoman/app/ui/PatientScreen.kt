@@ -87,6 +87,16 @@ fun PatientScreen(graph: AppGraph, initialPatientId: String? = null, onConsumed:
                 }
             },
             onPurge = { pendingPurge = patient },
+            onSaveNote = { text, remind ->
+                uiScope.launch { graph.addPatientNote(patient.id, text, remind); reload() }
+            },
+            onTomorrow = { on ->
+                uiScope.launch {
+                    graph.setTomorrowSurgery(patient.id, on)
+                    selected = graph.patientStore.find(patient.id)
+                    reload()
+                }
+            },
         )
         return
     }
@@ -333,6 +343,8 @@ private fun PatientDetail(
     onArchive: () -> Unit,
     onRestore: () -> Unit,
     onPurge: () -> Unit,
+    onSaveNote: (String, Boolean) -> Unit,
+    onTomorrow: (Boolean) -> Unit,
 ) {
     val gaps = PatientGaps.of(patient, today)
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -405,12 +417,57 @@ private fun PatientDetail(
                 InfoRow("编号", patient.id)
             }
         }
-        Row(
+        val canSchedule = patient.surgery == null &&
+            (patient.stage == PatientStage.PREOP || patient.stage == PatientStage.ADMITTED)
+        var noteText by remember(patient.id) { mutableStateOf("") }
+        var remind by remember(patient.id) { mutableStateOf(true) }
+        Column(
             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
-                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 14.dp),
         ) {
+            // 记一句：写进档案；勾了提醒就同时排一条待办
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = noteText,
+                    onValueChange = { noteText = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("记一句：会诊、查血、换药…", fontSize = 12.sp) },
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    shape = RoundedCornerShape(12.dp),
+                    maxLines = 3,
+                )
+                TextButton(
+                    onClick = {
+                        if (noteText.isNotBlank()) {
+                            onSaveNote(noteText.trim(), remind)
+                            noteText = ""
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 10.dp),
+                ) { Text("记下", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = remind, onCheckedChange = { remind = it }, modifier = Modifier.size(30.dp))
+                Text("同时提醒", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (canSchedule) {
+                    Spacer(Modifier.width(12.dp))
+                    Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFEEEBFA)) {
+                        Row(
+                            Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("明日手术", fontSize = 11.sp, color = Color(0xFF5B4BB7), fontWeight = FontWeight.Medium)
+                            Spacer(Modifier.width(2.dp))
+                            Checkbox(
+                                checked = patient.plannedSurgery?.date == LocalDate.now().plusDays(1).toString(),
+                                onCheckedChange = { on -> onTomorrow(on) },
+                                modifier = Modifier.size(30.dp),
+                            )
+                        }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (patient.stage == PatientStage.ARCHIVED) {
                 OutlinedButton(onClick = onRestore, modifier = Modifier.weight(1f), shape = RoundedCornerShape(11.dp)) {
                     Text("恢复在院", fontSize = 12.5.sp)
@@ -426,6 +483,7 @@ private fun PatientDetail(
                 OutlinedButton(onClick = onArchive, shape = RoundedCornerShape(11.dp)) {
                     Text("归档", fontSize = 12.5.sp)
                 }
+            }
             }
         }
     }

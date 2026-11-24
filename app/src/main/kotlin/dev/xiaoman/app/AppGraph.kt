@@ -11,6 +11,9 @@ import dev.xiaoman.api.CareTask
 import dev.xiaoman.api.ModelRole
 import dev.xiaoman.api.Patient
 import dev.xiaoman.api.PatientEvent
+import dev.xiaoman.api.PatientNote
+import dev.xiaoman.api.PatientStage
+import dev.xiaoman.api.PlannedSurgery
 import dev.xiaoman.api.TaskRule
 import dev.xiaoman.api.TaskState
 import dev.xiaoman.app.session.AgentSession
@@ -305,6 +308,63 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
             }
         }
         return CleanupReport(chatTurns, patients, records, bytes)
+    }
+
+    /** 详情页底部记一句：一定存进档案；勾了「提醒」就同时排一条待办。 */
+    suspend fun addPatientNote(patientId: String, text: String, remind: Boolean): Boolean {
+        val patient = patientStore.find(patientId) ?: return false
+        val today = java.time.LocalDate.now()
+        val clean = text.trim()
+        if (clean.isEmpty()) return false
+        patientStore.upsert(
+            patient.copy(
+                notes = patient.notes + PatientNote(today.toString(), clean),
+                updatedAt = today.toString(),
+            ),
+        )
+        if (remind) {
+            taskStore.add(
+                listOf(
+                    CareTask(
+                        id = "pn-${patientId}-${today}-${clean.hashCode()}",
+                        bed = patient.bed, name = patient.name, patientKey = patient.name,
+                        patientId = patientId, item = clean, note = "详情页记的",
+                        rule = TaskRule(), state = TaskState.ACTIVE,
+                        until = today.plusDays(3).toString(), createdAt = today.toString(),
+                        source = "manual",
+                    ),
+                ),
+            )
+        }
+        return true
+    }
+
+    /** 「明日手术」一键：待手术的患者点一下就是排期，再点取消。 */
+    suspend fun setTomorrowSurgery(patientId: String, on: Boolean): Boolean {
+        val patient = patientStore.find(patientId) ?: return false
+        val today = java.time.LocalDate.now()
+        val next = if (on) {
+            patient.copy(
+                plannedSurgery = PlannedSurgery(
+                    date = today.plusDays(1).toString(),
+                    name = patient.plannedSurgery?.name.orEmpty(),
+                    order = patient.plannedSurgery?.order,
+                ),
+                stage = if (patient.stage == PatientStage.ADMITTED) PatientStage.PREOP else patient.stage,
+                updatedAt = today.toString(),
+            )
+        } else {
+            patient.copy(plannedSurgery = null, updatedAt = today.toString())
+        }
+        patientStore.upsert(next)
+        patientStore.log(
+            PatientEvent(
+                java.time.LocalDateTime.now().withNano(0).toString(),
+                if (on) "patient.scheduled" else "patient.unscheduled",
+                patientId, if (on) "明日手术" else "取消明日手术", "manual",
+            ),
+        )
+        return true
     }
 
     /** 完成病案首页：患者、待办、事件一并清除，不可恢复。 */
