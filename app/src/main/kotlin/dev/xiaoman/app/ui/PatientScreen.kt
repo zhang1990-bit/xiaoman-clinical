@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.xiaoman.app.AppGraph
 import dev.xiaoman.api.CareTask
+import dev.xiaoman.api.NoteIntent
+import dev.xiaoman.api.NoteKind
 import dev.xiaoman.api.Patient
 import dev.xiaoman.api.PatientGaps
 import dev.xiaoman.api.PatientStage
@@ -66,6 +68,8 @@ fun PatientScreen(graph: AppGraph, initialPatientId: String? = null, onConsumed:
         onConsumed()
     }
     var pendingPurge by remember { mutableStateOf<Patient?>(null) }
+    var pendingIntent by remember { mutableStateOf<NoteIntent?>(null) }
+    var pendingPatientId by remember { mutableStateOf<String?>(null) }
     var pendingArchive by remember { mutableStateOf<Patient?>(null) }
 
     // 侧滑返回：先退回列表，别把整个 App 关掉
@@ -87,9 +91,28 @@ fun PatientScreen(graph: AppGraph, initialPatientId: String? = null, onConsumed:
                 }
             },
             onPurge = { pendingPurge = patient },
-            onSaveNote = { text, remind ->
-                uiScope.launch { graph.addPatientNote(patient.id, text, remind); reload() }
+            onSaveNote = { text ->
+                uiScope.launch {
+                    graph.addPatientNote(patient.id, text, false)
+                    reload()
+                    val classified = graph.classifyNote(text, patient)
+                    pendingIntent = classified.takeIf { it.kind != NoteKind.OTHER }
+                    pendingPatientId = patient.id
+                }
             },
+            intent = pendingIntent.takeIf { pendingPatientId == patient.id },
+            onApplyIntent = {
+                val target = pendingIntent
+                if (target != null) {
+                    uiScope.launch {
+                        graph.applyNoteIntent(patient.id, target)
+                        pendingIntent = null
+                        pendingPatientId = null
+                        reload()
+                    }
+                }
+            },
+            onDismissIntent = { pendingIntent = null; pendingPatientId = null },
             onTomorrow = { on ->
                 uiScope.launch {
                     graph.setTomorrowSurgery(patient.id, on)
@@ -343,8 +366,11 @@ private fun PatientDetail(
     onArchive: () -> Unit,
     onRestore: () -> Unit,
     onPurge: () -> Unit,
-    onSaveNote: (String, Boolean) -> Unit,
+    onSaveNote: (String) -> Unit,
     onTomorrow: (Boolean) -> Unit,
+    intent: NoteIntent?,
+    onApplyIntent: () -> Unit,
+    onDismissIntent: () -> Unit,
 ) {
     val gaps = PatientGaps.of(patient, today)
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -420,12 +446,32 @@ private fun PatientDetail(
         val canSchedule = patient.surgery == null &&
             (patient.stage == PatientStage.PREOP || patient.stage == PatientStage.ADMITTED)
         var noteText by remember(patient.id) { mutableStateOf("") }
-        var remind by remember(patient.id) { mutableStateOf(true) }
         Column(
             Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
                 .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 14.dp),
         ) {
-            // 记一句：写进档案；勾了提醒就同时排一条待办
+            // 识别结果先摆出来，点「就这样」才真的变成待办
+            intent?.let { it ->
+                Surface(
+                    shape = RoundedCornerShape(11.dp),
+                    color = Color(0xFFE6F4F1),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                ) {
+                    Row(Modifier.padding(start = 12.dp, end = 6.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "我理解成：${it.summary()}",
+                            fontSize = 11.5.sp, color = Color(0xFF0E7A6B), modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onDismissIntent, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Text("只记备注", fontSize = 11.sp)
+                        }
+                        TextButton(onClick = onApplyIntent, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                            Text("就这样", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+            // 记一句：先落库，再分类
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = noteText,
@@ -439,7 +485,7 @@ private fun PatientDetail(
                 TextButton(
                     onClick = {
                         if (noteText.isNotBlank()) {
-                            onSaveNote(noteText.trim(), remind)
+                            onSaveNote(noteText.trim())
                             noteText = ""
                         }
                     },
@@ -447,8 +493,6 @@ private fun PatientDetail(
                 ) { Text("记下", fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = remind, onCheckedChange = { remind = it }, modifier = Modifier.size(30.dp))
-                Text("同时提醒", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (canSchedule) {
                     Spacer(Modifier.width(12.dp))
                     Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFEEEBFA)) {

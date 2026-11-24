@@ -13,6 +13,9 @@ import dev.xiaoman.api.Patient
 import dev.xiaoman.api.PatientEvent
 import dev.xiaoman.api.PatientNote
 import dev.xiaoman.api.PatientStage
+import dev.xiaoman.api.NoteIntent
+import dev.xiaoman.api.NoteKind
+import dev.xiaoman.api.NoteRules
 import dev.xiaoman.api.PlannedSurgery
 import dev.xiaoman.api.TaskRule
 import dev.xiaoman.api.TaskState
@@ -265,6 +268,13 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         return true
     }
 
+    private val NOTE_CLASSIFY_PROMPT = """
+        你是病历助手。把医生的一句话归类成 JSON，只输出 JSON，不要解释。
+        字段：kind（CONSULT/BLOOD/DRESSING/ORDER/OTHER）、dept（会诊科室，没有就 null）、dueDate（yyyy-MM-dd，没有就 null）。
+        今天：%s。
+        规则：请会诊=CONSULT；查血/复查血/血常规=BLOOD；换药/切口/拆线=DRESSING；开医嘱/备血/禁食/停药=ORDER；其它=OTHER。
+    """.trimIndent()
+
     /** 清理报告：删了什么、省了多少。 */
     data class CleanupReport(val chatTurns: Int, val patients: Int, val records: Int, val bytes: Long, val days: Int = 30)
 
@@ -308,6 +318,100 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
             }
         }
         return CleanupReport(chatTurns, patients, records, bytes)
+    }
+
+    /**
+     * 把一句随手记分类。规则先判，判不出来才问一次模型；模型失败就退回「只记备注」。
+     * 注意：这里只返回建议，落库要等用户点「就这样」。
+     */
+    suspend fun classifyNote(text: String, patient: Patient?): NoteIntent {
+        val today = java.time.LocalDate.now()
+        val ruled = NoteRules.classify(text, patient, today)
+        if (ruled.kind != NoteKind.OTHER) return ruled
+        val config = settings.current
+        if (!config.configured) return ruled
+        return runCatching {
+            val client = llm.create(config.chat.toModelConfig(ModelRole.CHAT))
+            val response = client.complete(
+                ChatRequest(
+                    listOf(
+                        ChatMessage.system(NOTE_CLASSIFY_PROMPT),
+                        ChatMessage.user(text),
+                    ),
+                    tools = emptyList(),
+                ),
+            )
+            NoteRules.parse(text, response.text) ?: ruled
+        }.getOrDefault(ruled)
+    }
+
+    /** 用户点了「就这样」：把分类真正落实成待办 / 会诊。 */
+    suspend fun applyNoteIntent(patientId: String, intent: NoteIntent): Boolean {
+        val patient = patientStore.find(patientId) ?: return false
+        val today = java.time.LocalDate.now()
+        val until = intent.dueDate ?: today.toString()
+
+        when (intent.kind) {
+            NoteKind.CONSULT -> {
+                val dept = intent.dept ?: "会诊"
+                if (patient.consults.none { it.dept == dept }) {
+                    patientStore.upsert(
+                        patient.copy(
+                            consults = patient.consults + dev.xiaoman.api.Consult(dept, today.toString(), status = "toRequest"),
+                            updatedAt = today.toString(),
+                        ),
+                    )
+                }
+                taskStore.add(
+                    listOf(
+                        CareTask(
+                            id = "cq-$patientId-$dept", bed = patient.bed, name = patient.name, patientKey = patient.name,
+                            patientId = patientId, item = "请${dept}会诊", note = "详情页记的",
+                            rule = TaskRule(), state = TaskState.ACTIVE,
+                            until = today.plusDays(3).toString(), createdAt = today.toString(), source = "patient",
+                        ),
+                    ),
+                )
+            }
+            NoteKind.BLOOD -> taskStore.add(
+                listOf(
+                    CareTask(
+                        id = "bl-$patientId-$until", bed = patient.bed, name = patient.name, patientKey = patient.name,
+                        patientId = patientId, item = "复查血", note = intent.text,
+                        rule = TaskRule(), state = TaskState.ACTIVE,
+                        until = until, createdAt = today.toString(), source = "patient",
+                    ),
+                ),
+            )
+            NoteKind.DRESSING -> taskStore.add(
+                listOf(
+                    CareTask(
+                        id = "dr-$patientId-${today}", bed = patient.bed, name = patient.name, patientKey = patient.name,
+                        patientId = patientId, item = "换药（隔天一次）", note = intent.text,
+                        rule = TaskRule(everyDays = 2), state = TaskState.ACTIVE,
+                        until = today.plusDays(14).toString(), createdAt = today.toString(), source = "patient",
+                    ),
+                ),
+            )
+            NoteKind.ORDER -> taskStore.add(
+                listOf(
+                    CareTask(
+                        id = "or-$patientId-${intent.text.hashCode()}", bed = patient.bed, name = patient.name,
+                        patientKey = patient.name, patientId = patientId, item = intent.text, note = "医嘱",
+                        rule = TaskRule(), state = TaskState.ACTIVE,
+                        until = until, createdAt = today.toString(), source = "manual",
+                    ),
+                ),
+            )
+            NoteKind.OTHER -> return false
+        }
+        patientStore.log(
+            PatientEvent(
+                java.time.LocalDateTime.now().withNano(0).toString(),
+                "note.classified", patientId, intent.summary(), "manual",
+            ),
+        )
+        return true
     }
 
     /** 详情页底部记一句：一定存进档案；勾了「提醒」就同时排一条待办。 */
