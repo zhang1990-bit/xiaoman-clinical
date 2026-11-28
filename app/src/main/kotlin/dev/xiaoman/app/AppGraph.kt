@@ -106,7 +106,12 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     /** Generated surgical records and the user's own templates. */
     val recordsDir = File(externalRoot, "records")
     val templatesDir = File(externalRoot, "surgical-templates")
-    val recordStore by lazy { FileRecordStore(recordsDir, templatesDir) }
+    /** 手术记录写完后再发一份到 Download/手术txt，方便直接找。 */
+    private val recordPublisher by lazy { PublicRecordPublisher(app) }
+
+    val recordStore by lazy {
+        FileRecordStore(recordsDir, templatesDir, publish = { name, content -> recordPublisher.publish(name, content) })
+    }
 
     val taskScheduler by lazy { TaskDigestScheduler(app, taskStore, notifier) }
 

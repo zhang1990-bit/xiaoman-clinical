@@ -17,6 +17,11 @@ import java.io.File
 class FileRecordStore(
     private val recordsDir: File,
     private val templatesDir: File,
+    /**
+     * 写完之后把正文再发一份到「用户能找到的地方」（手机上就是 Download/手术txt）。
+     * 返回给用户看的路径；null 表示这一步没成功，但本地文件已经写好了。
+     */
+    private val publish: (suspend (displayName: String, content: String) -> String?)? = null,
 ) : RecordStore {
 
     override suspend fun save(title: String, content: String): String = withContext(Dispatchers.IO) {
@@ -28,8 +33,10 @@ class FileRecordStore(
             file = File(recordsDir, "$base-$n.txt")
             n++
         }
-        file.writeText(content.trim() + "\n", Charsets.UTF_8)
-        file.absolutePath
+        val body = content.trim() + "\n"
+        file.writeText(body, Charsets.UTF_8)
+        // 本地写好之后再发一份到公共目录；发失败不影响本地文件
+        publish?.let { send -> runCatching { send(base, body) }.getOrNull() } ?: file.absolutePath
     }
 
     override suspend fun list(): List<String> = withContext(Dispatchers.IO) {

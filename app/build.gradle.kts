@@ -39,8 +39,8 @@ android {
         applicationId = "dev.xiaoman.app"
         minSdk = 30
         targetSdk = 35
-        versionCode = 35
-        versionName = "1.21.0"
+        versionCode = 36
+        versionName = "1.22.0"
     }
     buildTypes {
         release {
