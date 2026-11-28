@@ -35,6 +35,7 @@ fun WorkbenchScreen(graph: AppGraph, onOpenPatient: (String) -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("workbench", Context.MODE_PRIVATE) }
     var collapsed by remember { mutableStateOf(prefs.getStringSet("collapsed", emptySet())?.toSet().orEmpty()) }
+    val expandedKinds = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     var patients by remember { mutableStateOf<List<Patient>>(emptyList()) }
     LaunchedEffect(Unit) { patients = graph.patientStore.all() }
     val board = remember(patients) { Workbench.build(patients, today) }
@@ -69,6 +70,8 @@ fun WorkbenchScreen(graph: AppGraph, onOpenPatient: (String) -> Unit) {
                         today = today,
                         collapsed = kind.name in collapsed,
                         onToggle = { toggle(kind) },
+                        expanded = expandedKinds[kind.name] == true,
+                        onExpandToggle = { expandedKinds[kind.name] = !(expandedKinds[kind.name] ?: false) },
                         onOpen = onOpenPatient,
                     )
                 }
@@ -92,6 +95,8 @@ private fun BucketCard(
     today: LocalDate,
     collapsed: Boolean,
     onToggle: () -> Unit,
+    expanded: Boolean,
+    onExpandToggle: () -> Unit,
     onOpen: (String) -> Unit,
 ) {
     val (fg, bg) = kindColor(kind)
@@ -125,7 +130,7 @@ private fun BucketCard(
                     modifier = Modifier.padding(start = 13.dp, end = 13.dp, bottom = 12.dp),
                 )
             } else {
-                entries.take(4).forEach { e ->
+                entries.let { if (expanded) it else it.take(4) }.forEach { e ->
                     Row(
                         Modifier.fillMaxWidth().clickable { onOpen(e.patient.id) }
                             .padding(horizontal = 13.dp, vertical = 7.dp),
@@ -157,11 +162,17 @@ private fun BucketCard(
                     }
                 }
                 if (entries.size > 4) {
-                    Text(
-                        "还有 ${entries.size - 4} 人", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onExpandToggle() }
+                            .padding(vertical = 9.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (expanded) "收起" else "还有 ${entries.size - 4} 人 · 点这里全部展开",
+                            fontSize = 11.sp, color = fg, fontWeight = FontWeight.Medium,
+                        )
+                    }
                 }
             }
         }
