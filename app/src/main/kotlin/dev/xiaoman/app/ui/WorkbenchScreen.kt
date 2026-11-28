@@ -86,6 +86,7 @@ fun WorkbenchScreen(graph: AppGraph, onOpenPatient: (String) -> Unit) {
 
 private fun kindColor(kind: Workbench.Kind): Pair<Color, Color> = when (kind) {
     Workbench.Kind.TO_OPERATE -> Color(0xFF1F5FBF) to Color(0xFFE9F0FB)
+    Workbench.Kind.PERIOP -> Color(0xFF8A4B7A) to Color(0xFFF7ECF4)
     Workbench.Kind.CONSULT -> Color(0xFFA35A00) to Color(0xFFFDF1E0)
     Workbench.Kind.BLOOD -> Color(0xFF0E7A6B) to Color(0xFFE6F4F1)
     Workbench.Kind.TOMORROW -> Color(0xFF5B4BB7) to Color(0xFFEEEBFA)

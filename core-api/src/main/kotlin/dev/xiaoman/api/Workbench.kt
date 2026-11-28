@@ -10,6 +10,7 @@ import java.time.LocalDate
 object Workbench {
     enum class Kind(val title: String) {
         TO_OPERATE("待手术"),
+        PERIOP("围手术期"),
         CONSULT("会诊"),
         BLOOD("血结果"),
         TOMORROW("明日手术"),
@@ -94,12 +95,14 @@ object Workbench {
             )
         }
 
-        // 其他：落在五类之外的在办提醒（术前检查、MDT、换药、医嘱……）
         val liveIds = live.associateBy { it.id }
-        val other = tasks
+
+        // 围手术期与其他：按提醒条目归类，同一个人两件事就是两行
+        val byCategory = tasks
             .filter { it.state != TaskState.DONE && it.patientId != null }
             .filter { it.patientId in liveIds.keys }
-            .filter { categoryOf(it.item) == Kind.OTHER }
+            .groupBy { categoryOf(it.item) }
+        fun entriesOf(kind: Kind): List<Entry> = byCategory[kind].orEmpty()
             .sortedBy { it.bedRankOf() }
             .mapNotNull { t ->
                 val p = liveIds[t.patientId] ?: return@mapNotNull null
@@ -111,12 +114,13 @@ object Workbench {
             today,
             mapOf(
                 Kind.TO_OPERATE to toOperate,
+                Kind.PERIOP to entriesOf(Kind.PERIOP),
                 Kind.CONSULT to consult,
                 Kind.BLOOD to blood,
                 Kind.TOMORROW to tomorrowOps,
                 Kind.DISCHARGE to discharge,
                 Kind.CONSERVATIVE to conservative,
-                Kind.OTHER to other,
+                Kind.OTHER to entriesOf(Kind.OTHER),
             ),
         )
     }
@@ -128,6 +132,9 @@ object Workbench {
             t.contains("会诊") -> Kind.CONSULT
             t.contains("复查血") || t.contains("血常规") || t.contains("查血") -> Kind.BLOOD
             t.contains("整理出院首页") -> Kind.DISCHARGE
+            // 围手术期：术前准备 + 切口相关
+            listOf("术前", "检查", "备血", "禁食", "备皮", "知情", "谈话", "MDT", "换药", "拆线", "切口", "敷料")
+                .any { t.contains(it) } -> Kind.PERIOP
             else -> Kind.OTHER
         }
     }

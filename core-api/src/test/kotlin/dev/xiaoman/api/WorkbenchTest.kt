@@ -100,21 +100,37 @@ class WorkbenchTest {
     }
 
     @Test
+    fun perioperativeRemindersGetTheirOwnBucket() {
+        val tasks = listOf(
+            "术前检查是否完善", "检查：增强 CT", "上 MDT", "换药（隔天一次）",
+        ).mapIndexed { i, item ->
+            CareTask(
+                id = "t$i", bed = "12", name = "李xx", patientKey = "李xx", patientId = "p-12",
+                item = item, until = "2099-01-01", createdAt = "2026-11-24",
+            )
+        }
+        val board = Workbench.build(listOf(p("12")), tasks = tasks, today = today)
+        assertEquals(4, board.of(Workbench.Kind.PERIOP).size, board.of(Workbench.Kind.PERIOP).toString())
+        assertTrue(board.of(Workbench.Kind.OTHER).isEmpty())
+    }
+
+    @Test
     fun unclassifiedRemindersFallIntoOther() {
         val patient = p("12")
         val tasks = listOf(
             CareTask(
                 id = "t1", bed = "12", name = "李xx", patientKey = "李xx", patientId = "p-12",
-                item = "术前检查是否完善", until = "2099-01-01", createdAt = "2026-11-24",
+                item = "电话随访家属", until = "2099-01-01", createdAt = "2026-11-24",
             ),
             CareTask(
                 id = "t2", bed = "12", name = "李xx", patientKey = "李xx", patientId = "p-12",
-                item = "换药（隔天一次）", until = "2099-01-01", createdAt = "2026-11-24",
+                item = "联系营养科订餐", until = "2099-01-01", createdAt = "2026-11-24",
             ),
         )
         val board = Workbench.build(listOf(patient), tasks = tasks, today = today)
         assertEquals(2, board.of(Workbench.Kind.OTHER).size)
-        assertTrue(board.of(Workbench.Kind.BLOOD).isEmpty(), "换药不该算血结果")
+        assertTrue(board.of(Workbench.Kind.BLOOD).isEmpty(), "杂事不该算血结果")
+        assertTrue(board.of(Workbench.Kind.PERIOP).isEmpty(), "杂事也不该算围手术期")
     }
 
     @Test
