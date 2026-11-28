@@ -32,7 +32,7 @@ object Workbench {
         val tomorrow = today.plusDays(1)
 
         val toOperate = live.filter {
-            it.surgery == null && it.stage != PatientStage.POSTOP &&
+            it.surgery == null && it.stage != PatientStage.POSTOP && !it.conservative &&
                 (it.plannedSurgery?.date?.toDateOrNull()?.isBefore(tomorrow) != true)
         }.sortedBy { it.bedRank() }.map { p ->
             val plan = p.plannedSurgery

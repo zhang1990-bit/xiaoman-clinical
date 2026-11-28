@@ -38,6 +38,21 @@ class WorkbenchTest {
     }
 
     @Test
+    fun conservativePatientsStayOutOfToOperate() {
+        val board = Workbench.build(
+            listOf(
+                p("20"),
+                p("21").copy(conservative = true),
+                p("22", consults = listOf(Consult("心内科", "2026-11-24", status = "requested"))).copy(conservative = true),
+            ),
+            today,
+        )
+        assertEquals(listOf("20"), board.of(Workbench.Kind.TO_OPERATE).map { it.patient.bed })
+        // 保守治疗不影响会诊
+        assertEquals(listOf("22"), board.of(Workbench.Kind.CONSULT).map { it.patient.bed })
+    }
+
+    @Test
     fun unscheduledPreopCountsAsToOperate() {
         val board = Workbench.build(listOf(p("20")), today)
         assertEquals("待排期", board.of(Workbench.Kind.TO_OPERATE).single().flag)

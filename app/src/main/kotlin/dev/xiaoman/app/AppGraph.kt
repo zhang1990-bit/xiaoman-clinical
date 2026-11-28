@@ -472,6 +472,27 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         return true
     }
 
+    /** 保守治疗一键：勾上就不进「待手术」，同时把排期清掉。 */
+    suspend fun setConservative(patientId: String, on: Boolean): Boolean {
+        val patient = patientStore.find(patientId) ?: return false
+        val today = java.time.LocalDate.now()
+        patientStore.upsert(
+            patient.copy(
+                conservative = on,
+                plannedSurgery = if (on) null else patient.plannedSurgery,
+                updatedAt = today.toString(),
+            ),
+        )
+        patientStore.log(
+            PatientEvent(
+                java.time.LocalDateTime.now().withNano(0).toString(),
+                if (on) "patient.conservative" else "patient.surgical",
+                patientId, if (on) "改保守治疗" else "恢复手术计划", "manual",
+            ),
+        )
+        return true
+    }
+
     /** 「明日手术」一键：待手术的患者点一下就是排期，再点取消。 */
     suspend fun setTomorrowSurgery(patientId: String, on: Boolean): Boolean {
         val patient = patientStore.find(patientId) ?: return false

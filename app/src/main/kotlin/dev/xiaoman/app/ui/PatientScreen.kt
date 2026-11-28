@@ -120,6 +120,13 @@ fun PatientScreen(graph: AppGraph, initialPatientId: String? = null, onConsumed:
                     reload()
                 }
             },
+            onConservative = { on ->
+                uiScope.launch {
+                    graph.setConservative(patient.id, on)
+                    selected = graph.patientStore.find(patient.id)
+                    reload()
+                }
+            },
         )
         return
     }
@@ -368,6 +375,7 @@ private fun PatientDetail(
     onPurge: () -> Unit,
     onSaveNote: (String) -> Unit,
     onTomorrow: (Boolean) -> Unit,
+    onConservative: (Boolean) -> Unit,
     intent: NoteIntent?,
     onApplyIntent: () -> Unit,
     onDismissIntent: () -> Unit,
@@ -495,7 +503,16 @@ private fun PatientDetail(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (canSchedule) {
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("保守治疗", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Checkbox(
+                            checked = patient.conservative,
+                            onCheckedChange = { on -> onConservative(on) },
+                            modifier = Modifier.size(30.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
                     Surface(shape = RoundedCornerShape(8.dp), color = Color(0xFFEEEBFA)) {
                         Row(
                             Modifier.padding(horizontal = 8.dp, vertical = 2.dp),

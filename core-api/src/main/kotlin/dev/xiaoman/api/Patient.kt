@@ -57,6 +57,8 @@ data class Patient(
     /** 拟出院日，口头给的。 */
     val plannedDischarge: String? = null,
     val dischargedOn: String? = null,
+    /** 保守治疗：不打算做手术。这类人不进工作台的「待手术」。 */
+    val conservative: Boolean = false,
     /** 肿瘤标记：置 true 才会推 MDT 提醒。 */
     val tumor: Boolean = false,
     /** 待排 / 已排 11-22 / 已讨论 */

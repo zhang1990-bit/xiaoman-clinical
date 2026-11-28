@@ -628,6 +628,10 @@ internal class ChatTools(
             (p.booleanOrNull ?: (p.content == "是")) .let { next = next.copy(tumor = it) }
         }
         JsonText.string(args, "mdt")?.let { next = next.copy(mdt = it) }
+        (args["conservative"] as? JsonPrimitive)?.let { p ->
+            val on = p.booleanOrNull ?: (p.content == "是" || p.content == "保守" || p.content == "保守治疗")
+            next = next.copy(conservative = on)
+        }
         JsonText.string(args, "consult")?.trim()?.takeIf { it.isNotEmpty() }?.let { dept ->
             if (next.consults.none { it.dept == dept }) {
                 next = next.copy(consults = next.consults + dev.xiaoman.api.Consult(dept, today.toString(), status = "toRequest"))
