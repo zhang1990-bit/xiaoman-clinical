@@ -27,7 +27,17 @@ fun MoreScreen(graph: AppGraph, onOpen: (String) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var report by remember { mutableStateOf<AppGraph.CleanupReport?>(null) }
+    var backupLine by remember { mutableStateOf("") }
     var cleaning by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val (bytes, oldest) = graph.patientStore.backupStats()
+        backupLine = if (oldest == null) {
+            "还没有备份，下次启动会自动生成"
+        } else {
+            "最近备份 ${oldest.removePrefix("patients-").removeSuffix(".json")} · ${bytes / 1024} KB"
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 12.dp)) {
@@ -38,6 +48,10 @@ fun MoreScreen(graph: AppGraph, onOpen: (String) -> Unit) {
                 Entry("技能", "查房待办 · 手术记录") { onOpen("skills") }
                 Entry("记忆", "患者信息 · 个人偏好") { onOpen("memory") }
                 Entry("设置", "模型 · 通知 · 关于") { onOpen("settings") }
+            }
+            Spacer(Modifier.height(12.dp))
+            Group {
+                Entry("本地备份", backupLine.ifBlank { "每天自动存一份，保留 7 天" }, danger = false) {}
             }
             Spacer(Modifier.height(12.dp))
             Group {

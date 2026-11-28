@@ -129,6 +129,24 @@ class FileTaskStore(
 
     private suspend fun <T> locked(block: () -> T): T = mutex.withLock { withContext(Dispatchers.IO) { block() } }
 
+    /**
+     * 每天一份快照，滚动保留 [keepDays] 天。待办丢了等于"明天早上没人提醒"，
+     * 比患者档案更容易被忽略，所以一起备份。
+     */
+    suspend fun backupDaily(keepDays: Int = 7): File? = locked {
+        val dir = File(root, "backup")
+        if (!dir.isDirectory && !dir.mkdirs()) return@locked null
+        val day = java.time.LocalDate.now().toString()
+        val target = File(dir, "tasks-$day.json")
+        val all = read()
+        if (all.isEmpty()) return@locked null
+        if (!target.isFile) target.writeText(json.encodeToString(Snapshot.serializer(), Snapshot(tasks = all)), Charsets.UTF_8)
+        val cutoff = "tasks-${java.time.LocalDate.now().minusDays(keepDays.toLong())}.json"
+        dir.listFiles { f -> f.isFile && f.name.startsWith("tasks-") && f.name.endsWith(".json") }
+            ?.filter { it.name < cutoff }?.forEach { it.delete() }
+        target
+    }
+
     private fun read(): List<CareTask> {
         if (!file.isFile) return emptyList()
         return try {

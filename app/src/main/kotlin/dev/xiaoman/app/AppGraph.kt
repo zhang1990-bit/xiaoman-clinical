@@ -575,6 +575,10 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         taskScheduler.scheduleNext()
         scope.launch(Dispatchers.IO) {
             // "上上个月及更早" closed tasks leave the active file once a month; cheap and idempotent.
+            // 先备份，再动数据：迁移万一出错，还有昨天的快照
+            runCatching { patientStore.backupDaily() }
+            runCatching { taskStore.backupDaily() }
+            runCatching { patientStore.migrateArchivedToShards() }
             runCatching { taskStore.archiveBefore(YearMonth.now().minusMonths(1)) }
             runCatching { migratePatients() }
             runCatching { normalizePatientTasks() }
