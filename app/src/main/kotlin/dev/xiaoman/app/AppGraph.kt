@@ -42,6 +42,7 @@ import dev.xiaoman.tasks.FileTaskStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -65,11 +66,18 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val externalRoot: File = app.getExternalFilesDir(null) ?: File(app.filesDir, "external")
+
+    /**
+     * 敏感数据（患者档案、待办、对话）放应用私有目录：外部存储虽然受 scoped storage 保护，
+     * 但连电脑/ADB 能直接读走。私有目录非 root 拿不到。
+     * 手术记录 TXT、模板、技能仍放外部目录——那些是要拿出去用的。
+     */
+    val privateRoot: File = File(app.filesDir, "data")
     val memoryDir = File(externalRoot, "memory")
     val skillsDir = File(externalRoot, "skills")
     val tracesDir = File(externalRoot, "traces")
     val bundledSkillsDir = File(app.filesDir, "bundled-skills")
-    val tasksDir = File(externalRoot, "tasks")
+    val tasksDir = File(privateRoot, "tasks")
 
     val settings: SettingsStore by lazy { SettingsStore.create(app) }
 
@@ -88,11 +96,11 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
     val rosterStore by lazy { FileRosterStore(tasksDir) }
 
     /** 对话落盘：按月一个 jsonl，退出重进接得上。 */
-    val chatsDir = File(externalRoot, "chats")
+    val chatsDir = File(privateRoot, "chats")
     val chatLog by lazy { FileChatLog(chatsDir) }
 
     /** 患者档案：在院 + 归档，放在 tasks 同级的 patients/ 目录。 */
-    val patientsDir = File(externalRoot, "patients")
+    val patientsDir = File(privateRoot, "patients")
     val patientStore by lazy { FilePatientStore(patientsDir) }
 
     /** Generated surgical records and the user's own templates. */
@@ -145,6 +153,29 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         private set
 
     private var cachedAgent: Pair<AppSettings, Agent>? = null
+
+    /**
+     * 把老版本放在外部目录的患者/待办/对话搬到私有目录。
+     *
+     * 顺序：复制 → 校验文件数 → 删除外部副本。校验不过就不删，留着下次再试。
+     * 幂等：内部已有同名文件时用外部的覆盖（外部是旧版唯一副本），全部搬完后外部目录消失。
+     */
+    private suspend fun migratePrivateData() = withContext(Dispatchers.IO) {
+        listOf("patients", "tasks", "chats").forEach { name ->
+            val from = File(externalRoot, name)
+            if (!from.isDirectory) return@forEach
+            val to = File(privateRoot, name)
+            val sourceCount = from.walkTopDown().count { it.isFile }
+            if (sourceCount == 0) return@forEach
+            runCatching {
+                from.copyRecursively(to, overwrite = true)
+                val copied = to.walkTopDown().count { it.isFile }
+                if (copied >= sourceCount) {
+                    from.deleteRecursively()
+                }
+            }
+        }
+    }
 
     /**
      * 老数据修正（幂等）：患者自动提醒每人每天只推 1 次；「术后第 N 天」这类点事件改成一次性。
@@ -244,38 +275,46 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         val item = task.item
 
         if (patient != null) {
-            var next = patient
-            when {
-                item.startsWith("术前检查") || item.startsWith("检查：") -> next = patient.copy(preopDone = true)
-                item.startsWith("请") && item.endsWith("会诊") -> {
-                    val dept = item.removePrefix("请").removeSuffix("会诊")
-                    next = patient.copy(
-                        consults = patient.consults.map {
-                            if (it.dept == dept && it.status == "toRequest") {
-                                it.copy(status = "requested", requestedOn = today.toString())
-                            } else {
-                                it
-                            }
-                        },
-                    )
+            patientStore.mutate(patient.id) { current ->
+                val next = when {
+                    item.startsWith("术前检查") || item.startsWith("检查：") -> current.copy(preopDone = true)
+                    item.startsWith("请") && item.endsWith("会诊") -> {
+                        val dept = item.removePrefix("请").removeSuffix("会诊")
+                        current.copy(
+                            consults = current.consults.map {
+                                if (it.dept == dept && it.status == "toRequest") {
+                                    it.copy(status = "requested", requestedOn = today.toString())
+                                } else {
+                                    it
+                                }
+                            },
+                        )
+                    }
+                    item.startsWith("会诊回复") -> {
+                        val dept = item.substringAfter("：")
+                        current.copy(
+                            consults = current.consults.map {
+                                if (it.dept == dept && it.status == "requested") {
+                                    it.copy(status = "replied", repliedOn = today.toString())
+                                } else {
+                                    it
+                                }
+                            },
+                        )
+                    }
+                    else -> current
                 }
-                item.startsWith("会诊回复") -> {
-                    val dept = item.substringAfter("：")
-                    next = patient.copy(
-                        consults = patient.consults.map {
-                            if (it.dept == dept && it.status == "requested") {
-                                it.copy(status = "replied", repliedOn = today.toString())
-                            } else {
-                                it
-                            }
-                        },
-                    )
-                }
+                if (next == current) current else next.copy(updatedAt = today.toString())
             }
-            if (next != patient) patientStore.upsert(next.copy(updatedAt = today.toString()))
         }
 
         taskStore.update(task.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = "患者页点完成"))
+        patientStore.log(
+            PatientEvent(
+                java.time.LocalDateTime.now().withNano(0).toString(),
+                "task.completed", patientId = task.patientId ?: "-", detail = item, source = "manual",
+            ),
+        )
 
         if (patient != null && item.startsWith("请") && item.endsWith("会诊")) {
             val dept = item.removePrefix("请").removeSuffix("会诊")
@@ -445,14 +484,16 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
 
     /** 详情页底部记一句：一定存进档案；勾了「提醒」就同时排一条待办。 */
     suspend fun addPatientNote(patientId: String, text: String, remind: Boolean): Boolean {
-        val patient = patientStore.find(patientId) ?: return false
         val today = java.time.LocalDate.now()
         val clean = text.trim()
         if (clean.isEmpty()) return false
-        patientStore.upsert(
-            patient.copy(
-                notes = patient.notes + PatientNote(today.toString(), clean),
-                updatedAt = today.toString(),
+        val patient = patientStore.mutate(patientId) {
+            it.copy(notes = it.notes + PatientNote(today.toString(), clean), updatedAt = today.toString())
+        } ?: return false
+        patientStore.log(
+            PatientEvent(
+                java.time.LocalDateTime.now().withNano(0).toString(),
+                "patient.note", patientId, clean, "manual",
             ),
         )
         if (remind) {
@@ -472,17 +513,54 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         return true
     }
 
-    /** 保守治疗一键：勾上就不进「待手术」，同时把排期清掉。 */
-    suspend fun setConservative(patientId: String, on: Boolean): Boolean {
-        val patient = patientStore.find(patientId) ?: return false
+    /**
+     * 患者页「归档」：和对话里归档做同一套连带动作——关掉未完成提醒、生成「整理出院首页」、写事件。
+     * 以前这里直接调 patientStore.archive，漏了清理和日志。
+     */
+    suspend fun archivePatientFromPage(patientId: String, reason: String = "患者页手动归档"): Boolean {
         val today = java.time.LocalDate.now()
-        patientStore.upsert(
-            patient.copy(
-                conservative = on,
-                plannedSurgery = if (on) null else patient.plannedSurgery,
-                updatedAt = today.toString(),
+        val archived = patientStore.archive(patientId, reason, today.toString()) ?: return false
+        val open = taskStore.all().filter { it.patientId == patientId && it.state != TaskState.DONE }
+        if (open.isNotEmpty()) {
+            taskStore.updateAll(
+                open.map {
+                    it.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = "患者已归档：$reason")
+                },
+            )
+        }
+        val id = "dc-$patientId-$today"
+        if (taskStore.find(id) == null) {
+            taskStore.add(
+                listOf(
+                    CareTask(
+                        id = id, bed = archived.bed, name = archived.name, patientKey = archived.name,
+                        patientId = patientId, item = "整理出院首页", note = "出院后 3 天内完成",
+                        rule = TaskRule(), state = TaskState.ACTIVE,
+                        until = today.plusDays(3).toString(), createdAt = today.toString(),
+                        source = "patient",
+                    ),
+                ),
+            )
+        }
+        patientStore.log(
+            PatientEvent(
+                java.time.LocalDateTime.now().withNano(0).toString(),
+                "patient.archived", patientId, reason, "manual",
             ),
         )
+        return true
+    }
+
+    /** 保守治疗一键：勾上就不进「待手术」，同时把排期清掉。 */
+    suspend fun setConservative(patientId: String, on: Boolean): Boolean {
+        val today = java.time.LocalDate.now()
+        patientStore.mutate(patientId) {
+            it.copy(
+                conservative = on,
+                plannedSurgery = if (on) null else it.plannedSurgery,
+                updatedAt = today.toString(),
+            )
+        } ?: return false
         patientStore.log(
             PatientEvent(
                 java.time.LocalDateTime.now().withNano(0).toString(),
@@ -495,22 +573,22 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
 
     /** 「明日手术」一键：待手术的患者点一下就是排期，再点取消。 */
     suspend fun setTomorrowSurgery(patientId: String, on: Boolean): Boolean {
-        val patient = patientStore.find(patientId) ?: return false
         val today = java.time.LocalDate.now()
-        val next = if (on) {
-            patient.copy(
-                plannedSurgery = PlannedSurgery(
-                    date = today.plusDays(1).toString(),
-                    name = patient.plannedSurgery?.name.orEmpty(),
-                    order = patient.plannedSurgery?.order,
-                ),
-                stage = if (patient.stage == PatientStage.ADMITTED) PatientStage.PREOP else patient.stage,
-                updatedAt = today.toString(),
-            )
-        } else {
-            patient.copy(plannedSurgery = null, updatedAt = today.toString())
-        }
-        patientStore.upsert(next)
+        patientStore.mutate(patientId) { patient ->
+            if (on) {
+                patient.copy(
+                    plannedSurgery = PlannedSurgery(
+                        date = today.plusDays(1).toString(),
+                        name = patient.plannedSurgery?.name.orEmpty(),
+                        order = patient.plannedSurgery?.order,
+                    ),
+                    stage = if (patient.stage == PatientStage.ADMITTED) PatientStage.PREOP else patient.stage,
+                    updatedAt = today.toString(),
+                )
+            } else {
+                patient.copy(plannedSurgery = null, updatedAt = today.toString())
+            }
+        } ?: return false
         patientStore.log(
             PatientEvent(
                 java.time.LocalDateTime.now().withNano(0).toString(),
@@ -575,6 +653,7 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         taskScheduler.scheduleNext()
         scope.launch(Dispatchers.IO) {
             // "上上个月及更早" closed tasks leave the active file once a month; cheap and idempotent.
+            runCatching { migratePrivateData() }
             // 先备份，再动数据：迁移万一出错，还有昨天的快照
             runCatching { patientStore.backupDaily() }
             runCatching { taskStore.backupDaily() }

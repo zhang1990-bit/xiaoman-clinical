@@ -258,6 +258,13 @@ class FakePatientStore : PatientStore {
         return patient
     }
 
+    override suspend fun mutate(id: String, block: (Patient) -> Patient): Patient? {
+        val index = items.indexOfFirst { it.id == id }
+        if (index < 0) return null
+        items[index] = block(items[index])
+        return items[index]
+    }
+
     override suspend fun archive(id: String, reason: String, on: String): Patient? {
         val index = items.indexOfFirst { it.id == id }
         if (index < 0) return null

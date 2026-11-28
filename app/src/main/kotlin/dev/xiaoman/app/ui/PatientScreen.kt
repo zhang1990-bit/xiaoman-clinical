@@ -197,7 +197,7 @@ fun PatientScreen(graph: AppGraph, initialPatientId: String? = null, onConsumed:
             confirmButton = {
                 TextButton(onClick = {
                     uiScope.launch {
-                        graph.patientStore.archive(target.id, "患者页手动归档", today.toString())
+                        graph.archivePatientFromPage(target.id)
                         pendingArchive = null
                         selected = null
                         reload()

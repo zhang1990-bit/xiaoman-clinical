@@ -129,6 +129,12 @@ interface PatientStore {
 
     suspend fun upsert(patient: Patient): Patient
 
+    /**
+     * 锁内读-改-写。按钮和对话都会改同一份档案，先读后写会互相覆盖；
+     * 需要在"当前最新状态"上改字段时用这个，不要自己拼 upsert。
+     */
+    suspend fun mutate(id: String, block: (Patient) -> Patient): Patient?
+
     suspend fun archive(id: String, reason: String, on: String): Patient?
 
     suspend fun restore(id: String): Patient?

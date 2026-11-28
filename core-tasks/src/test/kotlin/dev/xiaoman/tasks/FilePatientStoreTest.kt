@@ -117,6 +117,30 @@ class FilePatientStoreTest {
     }
 
     @Test
+    fun mutateReadsTheLatestCopyBeforeWriting() = runBlocking {
+        val dir = dir()
+        val store = FilePatientStore(dir)
+        store.upsert(patient())
+        // 模拟另一条路径刚改了诊断
+        store.mutate("p-0001") { it.copy(diagnosis = "胆囊结石") }
+        // 再在最新状态上加备注，不能把诊断覆盖回空
+        val next = store.mutate("p-0001") { it.copy(conservative = true) }
+        assertEquals("胆囊结石", next?.diagnosis)
+        assertTrue(next?.conservative == true)
+    }
+
+    @Test
+    fun mutateCanEditAnArchivedPatient() = runBlocking {
+        val dir = dir()
+        val store = FilePatientStore(dir)
+        store.upsert(patient())
+        store.archive("p-0001", "出院", "2026-11-20")
+        val next = store.mutate("p-0001") { it.copy(diagnosis = "补记：胆总管结石") }
+        assertEquals("补记：胆总管结石", store.archived().single().diagnosis)
+        assertEquals("补记：胆总管结石", next?.diagnosis)
+    }
+
+    @Test
     fun dailyBackupIsWrittenOnceAndPrunesOldOnes() = runBlocking {
         val dir = dir()
         val store = FilePatientStore(dir)

@@ -86,6 +86,21 @@ class FilePatientStore(
         patient
     }
 
+    override suspend fun mutate(id: String, block: (Patient) -> Patient): Patient? = locked {
+        val active = readActive()
+        val activeIndex = active.indexOfFirst { it.id == id }
+        if (activeIndex >= 0) {
+            val next = block(active[activeIndex])
+            writeActive(active.toMutableList().also { it[activeIndex] = next })
+            return@locked next
+        }
+        val shards = readArchive()
+        val target = shards.firstOrNull { it.id == id } ?: return@locked null
+        val next = block(target)
+        writeShard(next)
+        next
+    }
+
     override suspend fun archive(id: String, reason: String, on: String): Patient? = locked {
         val active = readActive()
         val index = active.indexOfFirst { it.id == id }
