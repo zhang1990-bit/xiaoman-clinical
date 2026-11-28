@@ -14,6 +14,8 @@ object Workbench {
         BLOOD("血结果"),
         TOMORROW("明日手术"),
         DISCHARGE("出院"),
+        CONSERVATIVE("保守治疗"),
+        OTHER("其他"),
     }
 
     /** 一个患者可能同时出现在几摞里（比如既待会诊又明日手术），这是对的。 */
@@ -27,7 +29,7 @@ object Workbench {
     /** 术后常规查血：D1 是术后医嘱里带的，D3/D5/D7 靠前一天的提醒。 */
     private val BLOOD_DAYS = setOf(1, 3, 5, 7)
 
-    fun build(patients: List<Patient>, today: LocalDate): Board {
+    fun build(patients: List<Patient>, tasks: List<CareTask> = emptyList(), today: LocalDate): Board {
         val live = patients.filter { it.stage != PatientStage.ARCHIVED && it.stage != PatientStage.DISCHARGED }
         val tomorrow = today.plusDays(1)
 
@@ -83,6 +85,28 @@ object Workbench {
             Entry(p, "拟 ${plan?.takeLast(5) ?: "今日"} 出院", if (plan == tomorrow.toString()) "明日出院" else "今日出院")
         }
 
+        val conservative = live.filter { it.conservative }.sortedBy { it.bedRank() }.map { p ->
+            Entry(
+                p,
+                listOfNotNull(p.diagnosis.ifBlank { null }, p.plannedDischarge?.let { "拟 ${it.takeLast(5)} 出院" })
+                    .joinToString(" · "),
+                "保守",
+            )
+        }
+
+        // 其他：落在五类之外的在办提醒（术前检查、MDT、换药、医嘱……）
+        val liveIds = live.associateBy { it.id }
+        val other = tasks
+            .filter { it.state != TaskState.DONE && it.patientId != null }
+            .filter { it.patientId in liveIds.keys }
+            .filter { categoryOf(it.item) == Kind.OTHER }
+            .sortedBy { it.bedRankOf() }
+            .mapNotNull { t ->
+                val p = liveIds[t.patientId] ?: return@mapNotNull null
+                Entry(p, t.item, if (t.pushCount > 0) "提醒" else "待办")
+            }
+            .distinctBy { it.patient.id to it.note }
+
         return Board(
             today,
             mapOf(
@@ -91,8 +115,21 @@ object Workbench {
                 Kind.BLOOD to blood,
                 Kind.TOMORROW to tomorrowOps,
                 Kind.DISCHARGE to discharge,
+                Kind.CONSERVATIVE to conservative,
+                Kind.OTHER to other,
             ),
         )
+    }
+
+    /** 一条提醒落在哪一摞。落不进去的都算「其他」。 */
+    fun categoryOf(item: String): Kind {
+        val t = item.trim()
+        return when {
+            t.contains("会诊") -> Kind.CONSULT
+            t.contains("复查血") || t.contains("血常规") || t.contains("查血") -> Kind.BLOOD
+            t.contains("整理出院首页") -> Kind.DISCHARGE
+            else -> Kind.OTHER
+        }
     }
 
     private fun daysSince(date: String?, today: LocalDate): Int {
@@ -102,4 +139,6 @@ object Workbench {
 }
 
 /** 床位排序：普通床按数字，加床排最后（A65 这种）。 */
+fun CareTask.bedRankOf(): Int = bed.filter { it.isDigit() }.toIntOrNull() ?: Int.MAX_VALUE
+
 fun Patient.bedRank(): Int = bed.filter { it.isDigit() }.toIntOrNull() ?: Int.MAX_VALUE

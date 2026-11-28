@@ -37,8 +37,12 @@ fun WorkbenchScreen(graph: AppGraph, onOpenPatient: (String) -> Unit) {
     var collapsed by remember { mutableStateOf(prefs.getStringSet("collapsed", emptySet())?.toSet().orEmpty()) }
     val expandedKinds = remember { androidx.compose.runtime.mutableStateMapOf<String, Boolean>() }
     var patients by remember { mutableStateOf<List<Patient>>(emptyList()) }
-    LaunchedEffect(Unit) { patients = graph.patientStore.all() }
-    val board = remember(patients) { Workbench.build(patients, today) }
+    var tasks by remember { mutableStateOf<List<dev.xiaoman.api.CareTask>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        patients = graph.patientStore.all()
+        tasks = graph.taskStore.all()
+    }
+    val board = remember(patients, tasks) { Workbench.build(patients, tasks, today) }
 
     fun toggle(kind: Workbench.Kind) {
         val next = if (kind.name in collapsed) collapsed - kind.name else collapsed + kind.name
@@ -86,6 +90,8 @@ private fun kindColor(kind: Workbench.Kind): Pair<Color, Color> = when (kind) {
     Workbench.Kind.BLOOD -> Color(0xFF0E7A6B) to Color(0xFFE6F4F1)
     Workbench.Kind.TOMORROW -> Color(0xFF5B4BB7) to Color(0xFFEEEBFA)
     Workbench.Kind.DISCHARGE -> Color(0xFF6B7A8C) to Color(0xFFF0F1F4)
+    Workbench.Kind.CONSERVATIVE -> Color(0xFF2E6B4F) to Color(0xFFE8F2EC)
+    Workbench.Kind.OTHER -> Color(0xFF7A5B2E) to Color(0xFFF6F0E6)
 }
 
 @Composable

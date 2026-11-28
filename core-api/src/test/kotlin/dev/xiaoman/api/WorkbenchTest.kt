@@ -30,7 +30,7 @@ class WorkbenchTest {
                 p("12", planned = PlannedSurgery(tomorrow, "腹腔镜胆囊切除", "第1台")),
                 p("20", planned = PlannedSurgery("2026-11-28", "胆囊切除")),
             ),
-            today,
+            today = today,
         )
         assertEquals(listOf("12"), board.of(Workbench.Kind.TOMORROW).map { it.patient.bed })
         // 待手术包含明天那台（还没做），也包含没排期的；明日手术是其中明天的子集
@@ -45,7 +45,7 @@ class WorkbenchTest {
                 p("21").copy(conservative = true),
                 p("22", consults = listOf(Consult("心内科", "2026-11-24", status = "requested"))).copy(conservative = true),
             ),
-            today,
+            today = today,
         )
         assertEquals(listOf("20"), board.of(Workbench.Kind.TO_OPERATE).map { it.patient.bed })
         // 保守治疗不影响会诊
@@ -54,7 +54,7 @@ class WorkbenchTest {
 
     @Test
     fun unscheduledPreopCountsAsToOperate() {
-        val board = Workbench.build(listOf(p("20")), today)
+        val board = Workbench.build(listOf(p("20")), today = today)
         assertEquals("待排期", board.of(Workbench.Kind.TO_OPERATE).single().flag)
     }
 
@@ -64,7 +64,7 @@ class WorkbenchTest {
             bed, stage = PatientStage.POSTOP,
             surgery = Surgery(today.minusDays(day.toLong()).toString(), "胆囊切除"),
         )
-        val board = Workbench.build(listOf(post(1, "29"), post(2, "10"), post(3, "21"), post(5, "08")), today)
+        val board = Workbench.build(listOf(post(1, "29"), post(2, "10"), post(3, "21"), post(5, "08")), today = today)
         assertEquals(listOf("08", "21", "29"), board.of(Workbench.Kind.BLOOD).map { it.patient.bed })
     }
 
@@ -75,7 +75,7 @@ class WorkbenchTest {
                 p("19", consults = listOf(Consult("心内科", "2026-11-24", status = "toRequest"))),
                 p("A65", consults = listOf(Consult("消化内科", "2026-11-21", status = "requested"))),
             ),
-            today,
+            today = today,
         )
         val consults = board.of(Workbench.Kind.CONSULT)
         assertEquals(2, consults.size)
@@ -87,14 +87,39 @@ class WorkbenchTest {
     fun dischargeCoversTodayAndTomorrow() {
         val board = Workbench.build(
             listOf(p("43", stage = PatientStage.POSTOP, discharge = "2026-11-24"), p("44", discharge = tomorrow)),
-            today,
+            today = today,
         )
         assertEquals(2, board.of(Workbench.Kind.DISCHARGE).size)
     }
 
     @Test
+    fun conservativePatientsHaveTheirOwnBucket() {
+        val board = Workbench.build(listOf(p("20").copy(conservative = true)), today = today)
+        assertEquals(listOf("20"), board.of(Workbench.Kind.CONSERVATIVE).map { it.patient.bed })
+        assertTrue(board.of(Workbench.Kind.TO_OPERATE).isEmpty())
+    }
+
+    @Test
+    fun unclassifiedRemindersFallIntoOther() {
+        val patient = p("12")
+        val tasks = listOf(
+            CareTask(
+                id = "t1", bed = "12", name = "李xx", patientKey = "李xx", patientId = "p-12",
+                item = "术前检查是否完善", until = "2099-01-01", createdAt = "2026-11-24",
+            ),
+            CareTask(
+                id = "t2", bed = "12", name = "李xx", patientKey = "李xx", patientId = "p-12",
+                item = "换药（隔天一次）", until = "2099-01-01", createdAt = "2026-11-24",
+            ),
+        )
+        val board = Workbench.build(listOf(patient), tasks = tasks, today = today)
+        assertEquals(2, board.of(Workbench.Kind.OTHER).size)
+        assertTrue(board.of(Workbench.Kind.BLOOD).isEmpty(), "换药不该算血结果")
+    }
+
+    @Test
     fun archivedPatientsNeverShowUp() {
-        val board = Workbench.build(listOf(p("05", stage = PatientStage.ARCHIVED)), today)
+        val board = Workbench.build(listOf(p("05", stage = PatientStage.ARCHIVED)), today = today)
         assertTrue(board.groups.values.all { it.isEmpty() })
     }
 }
