@@ -793,6 +793,17 @@ internal class ChatTools(
      */
     private suspend fun syncPatientTasks(patient: Patient, today: LocalDate) {
         val store = tasks ?: return
+        // 先去重：同一个患者、同一件事，只留最早的一条，其余关掉（历史 bug 造出来的重复）
+        store.all()
+            .filter { it.patientId == patient.id && it.source == PatientTasks.SOURCE_AUTO && it.state != TaskState.DONE }
+            .groupBy { it.item }
+            .forEach { (_, list) ->
+                if (list.size > 1) {
+                    list.drop(1).forEach {
+                        store.update(it.copy(state = TaskState.DONE, closedAt = today.toString(), closeReason = "重复项"))
+                    }
+                }
+            }
         val open = store.all().filter {
             it.state != TaskState.DONE && it.patientId == patient.id && it.source == PatientTasks.SOURCE_AUTO
         }
@@ -802,10 +813,11 @@ internal class ChatTools(
             store.add(
                 toCreate.map { d ->
                     CareTask(
-                        id = "pa-${patient.id}-${today}-${d.item.hashCode()}",
+                        // id 里不带日期：同一件事跨天只能有一条
+                        id = "pa-${patient.id}-${d.item.hashCode()}",
                         bed = patient.bed, name = patient.name, patientKey = patient.name,
                         patientId = patient.id, item = d.item, note = "自动",
-                        rule = TaskRule(), state = TaskState.ACTIVE,
+                        rule = TaskRule(maxPerDay = 1), state = TaskState.ACTIVE,
                         until = d.until, createdAt = today.toString(),
                         source = PatientTasks.SOURCE_AUTO,
                     )
@@ -830,10 +842,14 @@ internal class ChatTools(
                 store.add(
                     listOf(
                         CareTask(
-                            id = "po-${patient.id}-${plan.offsetDays}-${plan.item.hashCode()}",
+                            id = "po-${patient.id}-${plan.offsetDays}-${plan.everyDays}",
                             bed = patient.bed, name = patient.name, patientKey = patient.name,
                             patientId = patient.id, item = plan.item, note = "自动",
-                            rule = TaskRule(everyDays = plan.everyDays),
+                            rule = TaskRule(
+                                kind = if (plan.once) TaskRuleKind.ONCE else TaskRuleKind.DAILY,
+                                everyDays = plan.everyDays,
+                                maxPerDay = 1,
+                            ),
                             anchor = anchor, anchorDate = surgery.date,
                             state = TaskState.ACTIVE, until = until, createdAt = today.toString(),
                             source = PatientTasks.SOURCE_AUTO,

@@ -41,7 +41,17 @@ class TaskDigestScheduler(
         val due = tasks.all().filter { it.isDue(today) }
         if (due.isEmpty()) return
         notifier.showDigest(due, today)
-        tasks.updateAll(due.map { it.copy(pushCount = it.pushCount + 1) })
+        val stamp = today.toString()
+        tasks.updateAll(
+            due.map {
+                val sameDay = it.pushDate == stamp
+                it.copy(
+                    pushCount = it.pushCount + 1,
+                    pushDate = stamp,
+                    pushToday = if (sameDay) it.pushToday + 1 else 1,
+                )
+            },
+        )
     }
 
     /**

@@ -92,15 +92,17 @@ object PatientTasks {
         val untilOffset: Int,
         /** 间隔天数，换药是 2 */
         val everyDays: Int = 1,
+        /** 只在当天推一次（血检），换药是持续任务 */
+        val once: Boolean = false,
     )
 
     fun postOp(patient: Patient): List<PlannedPostOp> {
         if (patient.surgery == null) return emptyList()
         if (patient.stage == PatientStage.ARCHIVED || patient.stage == PatientStage.DISCHARGED) return emptyList()
         return listOf(
-            PlannedPostOp("术后第2天：开立明日复查血医嘱", 2, 3),
-            PlannedPostOp("术后第4天：开立明日复查血医嘱", 4, 5),
-            PlannedPostOp("术后第6天：开立明日复查血医嘱", 6, 7),
+            PlannedPostOp("术后第2天：开立明日复查血医嘱", 2, 3, once = true),
+            PlannedPostOp("术后第4天：开立明日复查血医嘱", 4, 5, once = true),
+            PlannedPostOp("术后第6天：开立明日复查血医嘱", 6, 7, once = true),
             PlannedPostOp("术后换药（隔天一次）", 2, 14, everyDays = 2),
         )
     }

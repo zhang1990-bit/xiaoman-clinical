@@ -109,6 +109,31 @@ class PatientTasksTest {
     }
 
     @Test
+    fun onceRuleFiresOnItsDayAndOneGraceDay() {
+        val task = CareTask(
+            id = "once", bed = "12", name = "李xx", patientKey = "李xx", item = "术后第2天复查血",
+            rule = TaskRule(kind = TaskRuleKind.ONCE, maxPerDay = 1),
+            anchor = TaskAnchor(AnchorKind.SURGERY, 2), anchorDate = "2026-11-20",
+            until = "2026-11-23", createdAt = "2026-11-20",
+        )
+        assertTrue(task.isDue(LocalDate.parse("2026-11-22")), "当天")
+        assertFalse(task.isDue(LocalDate.parse("2026-11-21")), "术后第 2 天之前不推")
+        assertTrue(task.isDue(LocalDate.parse("2026-11-23")), "当天没推过，次日补一次")
+        assertFalse(task.isDue(LocalDate.parse("2026-11-24")), "补过就不再纠缠")
+    }
+
+    @Test
+    fun maxPerDayStopsExtraPushes() {
+        val task = CareTask(
+            id = "cap", bed = "12", name = "李xx", patientKey = "李xx", item = "术前检查",
+            rule = TaskRule(maxPerDay = 1), until = "2099-01-01", createdAt = "2026-11-20",
+            pushDate = "2026-11-22", pushToday = 1,
+        )
+        assertFalse(task.isDue(LocalDate.parse("2026-11-22")), "今天已经推过一次")
+        assertTrue(task.isDue(LocalDate.parse("2026-11-23")), "换天照常推")
+    }
+
+    @Test
     fun labOrderOnlyFiresOnItsOwnDay() {
         val task = CareTask(
             id = "po2", bed = "12", name = "李xx", patientKey = "李xx", item = "术后第2天复查血",

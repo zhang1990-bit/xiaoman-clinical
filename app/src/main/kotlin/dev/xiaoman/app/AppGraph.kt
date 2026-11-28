@@ -18,6 +18,7 @@ import dev.xiaoman.api.NoteKind
 import dev.xiaoman.api.NoteRules
 import dev.xiaoman.api.PlannedSurgery
 import dev.xiaoman.api.TaskRule
+import dev.xiaoman.api.TaskRuleKind
 import dev.xiaoman.api.TaskState
 import dev.xiaoman.app.session.AgentSession
 import dev.xiaoman.app.session.SessionTexts
@@ -144,6 +145,34 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
         private set
 
     private var cachedAgent: Pair<AppSettings, Agent>? = null
+
+    /**
+     * 老数据修正（幂等）：患者自动提醒每人每天只推 1 次；「术后第 N 天」这类点事件改成一次性。
+     * 不做的话，历史任务会按老规则每天推 4 次、推到 until 为止。
+     */
+    private suspend fun normalizePatientTasks() {
+        val fixed = taskStore.all().mapNotNull { task ->
+            if (task.source != "patient") return@mapNotNull null
+            var next = task.copy(rule = task.rule.copy(maxPerDay = 1))
+            if (task.item.startsWith("术后第") && task.rule.kind == TaskRuleKind.DAILY) {
+                next = next.copy(rule = next.rule.copy(kind = TaskRuleKind.ONCE))
+            }
+            next.takeIf { it != task }
+        }
+        if (fixed.isNotEmpty()) taskStore.updateAll(fixed)
+
+        // 同一个患者、同一件事只留最早一条，其余关掉（历史造出来的重复）
+        val today = java.time.LocalDate.now().toString()
+        val dupes = taskStore.all()
+            .filter { it.source == "patient" && it.state != TaskState.DONE && it.patientId != null }
+            .groupBy { it.patientId to it.item }
+            .values
+            .filter { it.size > 1 }
+            .flatMap { list -> list.drop(1) }
+        if (dupes.isNotEmpty()) {
+            taskStore.updateAll(dupes.map { it.copy(state = TaskState.DONE, closedAt = today, closeReason = "重复项") })
+        }
+    }
 
     /**
      * 一次性迁移：老版本的待办只有姓名，没有患者档案。
@@ -527,6 +556,7 @@ class AppGraph(context: Context, private val llm: LlmClientFactory = LlmClients.
             // "上上个月及更早" closed tasks leave the active file once a month; cheap and idempotent.
             runCatching { taskStore.archiveBefore(YearMonth.now().minusMonths(1)) }
             runCatching { migratePatients() }
+            runCatching { normalizePatientTasks() }
         }
         OverlayController(session, accessibilityDevice, uiVisible = uiVisible).start(scope)
         scope.launch(Dispatchers.Main.immediate) {

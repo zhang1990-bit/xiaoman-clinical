@@ -400,13 +400,14 @@ private fun PatientDetail(
                 }
             }
         }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(14.dp)) {
             DetailCard("时间轴") { Timeline(patient, today) }
-            DetailCard("今日待办") {
-                if (tasks.isEmpty()) {
+            val dueToday = tasks.filter { it.isDue(today) }
+            DetailCard("今日待办（${dueToday.size}）") {
+                if (dueToday.isEmpty()) {
                     Text("今天没有待办", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
-                    tasks.forEach { t ->
+                    dueToday.forEach { t ->
                         Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.Top) {
                             Box(
                                 Modifier.padding(top = 2.dp).size(15.dp)

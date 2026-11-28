@@ -225,6 +225,24 @@ class PatientToolTest {
     }
 
     @Test
+    fun duplicateAutoTasksAreClosed() = runTest {
+        val h = Harness()
+        listOf("dup-a", "dup-b").forEach { id ->
+            h.tasks.items += dev.xiaoman.api.CareTask(
+                id = id, bed = "12", name = "李xx", patientKey = "李xx", patientId = "p-0001",
+                item = "术前检查是否完善", note = "自动", until = "2099-01-01",
+                createdAt = "2026-11-20", source = "patient",
+            )
+        }
+        h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx"}""")).reply("好")
+
+        h.agent.handle("更新一下 12 床", h.events, h.stop)
+
+        val alive = h.tasks.items.filter { it.item == "术前检查是否完善" && it.state != dev.xiaoman.api.TaskState.DONE }
+        assertEquals(1, alive.size, h.tasks.items.size.toString())
+    }
+
+    @Test
     fun archiveMovesPatientOutOfTheList() = runTest {
         val h = Harness()
         h.chat.tools(ToolCall("c1", AgentTools.PATIENT_UPDATE, """{"bed":"12","name":"李xx"}"""))

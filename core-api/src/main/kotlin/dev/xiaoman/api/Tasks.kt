@@ -39,6 +39,9 @@ data class CareTask(
     /** Set when the user says "看过了/知道了": skip the rest of that day only. */
     val silentDate: String? = null,
     val pushCount: Int = 0,
+    /** 最后一次推送的日期与当天次数，用来卡「每天最多推几次」。 */
+    val pushDate: String? = null,
+    val pushToday: Int = 0,
     val closedAt: String? = null,
     val closeReason: String? = null,
 ) {
@@ -50,12 +53,17 @@ data class CareTask(
         val end = until.toDateOrNull() ?: return false
         if (today.isAfter(end)) return false
         if (silentDate == today.toString()) return false
+        if (pushDate == today.toString() && pushToday >= rule.maxPerDay.coerceAtLeast(1)) return false
         return when (rule.kind) {
             TaskRuleKind.MONTHLY -> rule.days.isEmpty() || today.dayOfMonth in rule.days
             TaskRuleKind.DAILY -> startDate()?.let { start ->
                 if (today.isBefore(start)) return false
                 val every = rule.everyDays.coerceAtLeast(1)
                 every == 1 || (ChronoUnit.DAYS.between(start, today) % every).toInt() == 0
+            } ?: false
+            // 点事件：当天推；当天没开机，次日补一次，之后不再纠缠
+            TaskRuleKind.ONCE -> startDate()?.let { start ->
+                today == start || (today == start.plusDays(1) && pushCount == 0)
             } ?: false
         }
     }
@@ -90,10 +98,13 @@ data class TaskRule(
     val days: List<Int> = emptyList(),
     /** 每隔几天推一次（隔天换药 = 2）。1 表示每天。 */
     val everyDays: Int = 1,
+    /** 每天最多推几次。默认 4（跟推送时点一致）；患者档案里的自动提醒设 1。 */
+    val maxPerDay: Int = 4,
 )
 
 @Serializable
-enum class TaskRuleKind { DAILY, MONTHLY }
+/** ONCE：只在起始日推一次（次日补一次机会），用于「术后第 N 天开医嘱」这种点事件。 */
+enum class TaskRuleKind { DAILY, MONTHLY, ONCE }
 
 @Serializable
 data class TaskAnchor(
